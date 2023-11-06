@@ -1,10 +1,28 @@
 exception DuplicateEntry of Ast.identifier
 
-type 'a t = int (* DUMMY TO BE CHANGED*) 
+type 'a t = ((string, 'a) Hashtbl.t) list
 
-let empty_table  = failwith "Not implemented yet" 
-let begin_block _  = failwith "Not implemented yet"
-let end_block _ = failwith "Not implemented yet"
-let add_entry _ _ _ = failwith "Not implemented yet" 
-let lookup _ _ = failwith "Not implemented yet"
-let of_alist _ = failwith "Not implemented yet" 
+let empty_table () = [Hashtbl.create 0]
+
+(* create a new scope by adding a new hash table to the front of the
+   list of hash tables. *)
+let begin_block table = Hashtbl.create 0 :: table
+
+
+let end_block table = List.tl table
+
+(*  recursively lookup the variable starting from the current scope; *)
+let rec lookup symbol table =
+    match table with
+        | []       -> None
+        | (hd::tl) ->
+            match Hashtbl.find_opt hd symbol with
+                | None    -> lookup symbol tl
+                | Some(v) -> Some(v)
+
+(* add the variable information in the current scope*)
+let add_entry symbol info table =
+    let current = List.hd table in
+    match Hashtbl.find_opt current symbol with
+        | None    -> Hashtbl.add current symbol info; table
+        | Some(_) -> raise (DuplicateEntry symbol)
