@@ -84,11 +84,14 @@ and stmtordec_node =
   | Stmt of stmt (* A statement                 *)
 [@@deriving show]
 
+and function_block_node = FunctionBlock of stmtordec list [@@deriving show]
+
+and function_block = function_block_node annotated_node
 type fun_decl = {
   typ : typ;
   fname : string;
   formals : (typ * identifier) list;
-  body : stmt;
+  body : function_block;
 }
 [@@deriving show]
 

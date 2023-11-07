@@ -368,7 +368,10 @@ let check_func f scope loc =
     }
   in
   List.iter (check_parameter new_scope loc) f.formals;
-  check_stmt new_scope f.typ f.body;
+  match f.body.node with
+  | FunctionBlock stmts ->
+      List.iter (check_stmtordec new_scope f.typ) stmts;
+      Symbol_table.end_block new_scope.var_symbols |> ignore;
   Symbol_table.end_block new_scope.var_symbols |> ignore
 
 let rec global_expr_type scope loc e =

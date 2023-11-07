@@ -448,7 +448,8 @@ let codegen_func llmodule scope func =
     (build_param local_scope f_builder)
     func.formals
     (L.params f |> Array.to_list);
-  codegen_stmt f local_scope f_builder func.body |> ignore;
+  match func.body.node with
+  | FunctionBlock b -> List.fold_left (fun cont bl -> if cont then codegen_stmtordec f local_scope f_builder bl else false) true b |> ignore;
   match func.typ with
   | TypV -> add_terminator f_builder L.build_ret_void
   | _ -> add_terminator f_builder (ret_type |> L.undef |> L.build_ret) (*when no return is present, the function returns an undefined value *)

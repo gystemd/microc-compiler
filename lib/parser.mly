@@ -78,7 +78,7 @@ program:
 
 topdec:
 | v = vardecl e = option(preceded(ASSIGN,expr)) SEMI {node (Vardec(fst v, snd v,e)) $loc}
-| t = typ i = ID LPAREN fs=separated_list(COMMA, vardecl) RPAREN b=block 
+| t = typ i = ID LPAREN fs=separated_list(COMMA, vardecl) RPAREN b=function_block
   {node (Fundecl({typ=t; fname=i; formals=fs; body=b})) $loc}
 | STRUCT i = ID LBRACE l=list(terminated(vardecl,SEMI)) RBRACE SEMI 
   {node (Structdecl({sname=i; fields=l})) $loc}
@@ -105,7 +105,9 @@ vardesc:
 | v = vardesc LBRACKET n = option(INTEGER) RBRACKET {((fun t -> fst v (TypA(t,n))), snd v) }
 ;
 
-
+function_block:
+| LBRACE c=list(stmtordec) RBRACE { node (FunctionBlock(c)) $loc}
+;
 
 block:
 | LBRACE c=list(stmtordec) RBRACE { node (Block(c)) $loc}

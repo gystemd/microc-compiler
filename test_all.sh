@@ -10,14 +10,20 @@ for filepath in samples/*; do
 
     if [[ "$file" == "fail"* ]]; then
         if dune exec bin/microcc.exe -- $filepath > /dev/null; then
-           echo "something wrong in $filepath"
+           echo "❌ test $filepath"
         else
-           echo "test $filepath passed"
+           echo "✅ test $filepath"
         fi
     else
-        # dune exec bin/microcc.exe -- $filepath
-        # clang a.bc bin/rt-support.c
-        # ./a.out > res.txt
-        echo "to implement"
+        dune exec bin/microcc.exe -- $filepath
+        clang a.bc bin/rt-support.c
+        ./a.out > res.txt
+        if diff res.txt samples/$prefix$file.out; then
+            echo "❌ test $filepath"
+            echo "diff res.txt samples/$prefix$file.out"
+        else
+            echo "✅ test $filepath"
+        fi
+        # echo "to implement"
     fi
 done

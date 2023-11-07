@@ -7,7 +7,7 @@ let rt_functions =
           typ = TypV;
           fname = "print";
           formals = [ (TypI, "a") ];
-          body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
+          body = { loc = Location.dummy_code_pos; node = FunctionBlock []; id = 0 };
         } ) );
     ( "getint",
       ( Location.dummy_code_pos,
@@ -15,7 +15,7 @@ let rt_functions =
           typ = TypI;
           fname = "getint";
           formals = [];
-          body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
+          body = { loc = Location.dummy_code_pos; node = FunctionBlock []; id = 0 };
         } ) );
     ( "getfloat",
       ( Location.dummy_code_pos,
@@ -23,7 +23,7 @@ let rt_functions =
           typ = TypF;
           fname = "getfloat";
           formals = [];
-          body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
+          body = { loc = Location.dummy_code_pos; node = FunctionBlock []; id = 0 };
         } ) );
     ( "getcharacter",
       ( Location.dummy_code_pos,
@@ -31,7 +31,7 @@ let rt_functions =
           typ = TypC;
           fname = "getcharacter";
           formals = [];
-          body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
+          body = { loc = Location.dummy_code_pos; node = FunctionBlock []; id = 0 };
         } ) );
     ( "printchar",
       ( Location.dummy_code_pos,
@@ -39,7 +39,7 @@ let rt_functions =
           typ = TypV;
           fname = "printchar";
           formals = [ (TypC, "c") ];
-          body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
+          body = { loc = Location.dummy_code_pos; node = FunctionBlock []; id = 0 };
         } ) );
     ( "printfloat",
       ( Location.dummy_code_pos,
@@ -47,7 +47,7 @@ let rt_functions =
           typ = TypF;
           fname = "printfloat";
           formals = [ (TypF, "f") ];
-          body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
+          body = { loc = Location.dummy_code_pos; node = FunctionBlock []; id = 0 };
         } ) );
   ]
 
