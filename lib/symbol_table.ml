@@ -22,6 +22,8 @@ let rec lookup symbol table =
 
 (* add the variable information in the current scope*)
 let add_entry symbol info table =
+    if lookup symbol table <> None then
+        raise (DuplicateEntry symbol);
     let current = List.hd table in
     match Hashtbl.find_opt current symbol with
         | None    -> Hashtbl.add current symbol info; table

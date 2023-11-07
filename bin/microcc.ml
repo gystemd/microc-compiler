@@ -118,7 +118,7 @@ let () =
       let lexbuf = Lexing.from_string ~with_positions:true source in
       try action_function !outputfile !optimize !verify !action lexbuf with
       | Scanner.Lexing_error (pos, msg) | Parsing.Syntax_error (pos, msg) ->
-          handle_syntatic_error source pos msg
+          handle_syntatic_error source pos msg; exit 1
       | Semantic_analysis.Semantic_error (pos, msg) ->
-          handle_semantic_error source pos msg
-  with Sys_error msg -> Printf.eprintf "*** Error %s ***\n" msg
+          handle_semantic_error source pos msg; exit 1
+  with Sys_error msg -> (Printf.eprintf "*** Error %s ***\n" msg; exit 1)
