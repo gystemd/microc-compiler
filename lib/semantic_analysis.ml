@@ -368,8 +368,10 @@ let check_func f scope loc =
     }
   in
   List.iter (check_parameter new_scope loc) f.formals;
-  check_stmt new_scope f.typ f.body;
-  Symbol_table.end_block new_scope.var_symbols |> ignore
+  match f.body.node with
+  | Block stmts ->
+      List.iter (check_stmtordec new_scope f.typ) stmts;
+  | _ -> check_stmt new_scope f.typ f.body;;
 
 let rec global_expr_type scope loc e =
   (*checks that a global variable is initialized with a constant value *)
