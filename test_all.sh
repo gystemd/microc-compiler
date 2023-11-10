@@ -18,12 +18,23 @@ for filepath in samples/*; do
         dune exec bin/microcc.exe -- $filepath
         clang a.bc bin/rt-support.c
         ./a.out > res.txt
-        if diff res.txt samples/$prefix$file.out; then
+        result="res.txt"
+        outfile=${filepath%.mc}.out
+        echo "file $outfile"
+        echo "expected result"
+        cat $outfile
+        echo "----------------"
+        echo "result"
+        cat $result
+        echo "----------------"
+        if cmp "$res" "$outfile"; then
             echo "❌ test $filepath"
             echo "diff res.txt samples/$prefix$file.out"
         else
-            echo "✅ test $filepath"
+            echo "✅ test $outfile"
         fi
         # echo "to implement"
     fi
 done
+
+exit 0
