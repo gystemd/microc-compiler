@@ -284,42 +284,53 @@ and access_type scope a =
 
 let rec check_stmt scope ftype s =
   match s.node with
-  | If (e, s1, s2) ->
-      if expr_type scope e <> TypB then
-        raise @@ Semantic_error( s.loc, "If condition is not boolean")
-      else check_stmt scope ftype s1;
-      check_stmt scope ftype s2
+| If (e, s1, s2) ->
+    if expr_type scope e <> TypB then
+      raise @@ Semantic_error( s.loc, "If condition is not boolean")
+    else
+      begin
+        let _ = check_stmt scope ftype s1 in
+        let _ = check_stmt scope ftype s2 in
+        true
+      end
   | DoWhile (e, s)
   | While (e, s) ->
       if expr_type scope e <> TypB then
         raise @@ Semantic_error( s.loc, " Loop condition is not boolean")
-      else check_stmt scope ftype s
-  | Expr e -> expr_type scope e |> ignore
+      else
+        let _ = check_stmt scope ftype s in
+        true
+  | Expr e -> expr_type scope e |> ignore; true
   | Return (Some e) ->
       if expr_type scope e <> ftype then
         raise @@ Semantic_error (s.loc,
           "Return type does not match function signature")
-      else ()
+      else false
   | Return None ->
       if ftype <> TypV then
         raise @@ Semantic_error( s.loc, "missing return value")
-      else ()
-  | Block stmts ->
-      let new_scope =
-        { scope with var_symbols = Symbol_table.begin_block scope.var_symbols }
-      in
-      List.iter (check_stmtordec new_scope ftype) stmts;
-      Symbol_table.end_block new_scope.var_symbols |> ignore
+      else false 
+| Block stmts ->
+    let new_scope =
+      { scope with var_symbols = Symbol_table.begin_block scope.var_symbols }
+    in
+    let result = List.fold_left (fun acc stmtordec ->
+      if not acc then
+        raise @@ Semantic_error(stmtordec.loc, "instruction after return found")
+      else
+       acc && check_stmtordec new_scope ftype stmtordec) true stmts in
+    Symbol_table.end_block new_scope.var_symbols |> ignore;
+    result
 
 and check_stmtordec scope ftype s =
   match s.node with
-  | Dec (t, i, None) -> check_var_decl scope s.loc (t, i)
+  | Dec (t, i, None) -> check_var_decl scope s.loc (t, i); true
   | Dec (t, i, Some e) -> (
       match (t, e.node) with
       | TypA (TypC, None), String str ->
-          string_var_initialization s.loc scope.var_symbols 0 i str
+          string_var_initialization s.loc scope.var_symbols 0 i str;
       | TypA (TypC, Some v), String str ->
-          string_var_initialization s.loc scope.var_symbols v i str
+          string_var_initialization s.loc scope.var_symbols v i str;
       | _ -> (
           check_var_decl scope s.loc (t, i);
           let et = expr_type scope e in
@@ -329,7 +340,7 @@ and check_stmtordec scope ftype s =
                 "Array is not a valid value initializer")
           | _ ->
               if match_types s.loc t et then ()
-              else raise @@ Semantic_error( s.loc, "Value of different type")))
+              else raise @@ Semantic_error( s.loc, "Value of different type"))); true
   | Stmt s -> check_stmt scope ftype s
 
 
@@ -370,8 +381,12 @@ let check_func f scope loc =
   List.iter (check_parameter new_scope loc) f.formals;
   match f.body.node with
   | Block stmts ->
-      List.iter (check_stmtordec new_scope f.typ) stmts;
-  | _ -> check_stmt new_scope f.typ f.body;;
+    List.fold_left (fun acc stmtordec ->
+      if not acc then
+        raise @@ Semantic_error(stmtordec.loc, "instruction after return found")
+      else
+        acc && check_stmtordec new_scope f.typ stmtordec) true stmts |> ignore;
+  | _ -> check_stmt new_scope f.typ f.body |> ignore
 
 let rec global_expr_type scope loc e =
   (*checks that a global variable is initialized with a constant value *)
