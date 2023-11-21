@@ -412,25 +412,15 @@ and codegen_stmtordec fdef scope builder st =
   - Generate function body
   - Add terminator when  no return is present
    *)
-let codegen_func llmodule scope func =
-  let ret_type = build_llvm_type scope.struct_symbols func.typ in
-  let formals_types =
-    func.formals |> List.map fst
-    |> List.map (fun t ->
-           match t with
-           | TypA (t1, _) -> (*all arrays become pointers *)
-               build_llvm_type scope.struct_symbols t1 |> L.pointer_type
-           | _ -> build_llvm_type scope.struct_symbols t)
-  in
-  let f_type = L.function_type ret_type (Array.of_list formals_types) in
-  let f = L.define_function func.fname f_type llmodule in
+let codegen_func  scope func =
   let local_scope =
     {
       scope with
-      fun_symbols = Symbol_table.add_entry func.fname f scope.fun_symbols;
       var_symbols = Symbol_table.begin_block scope.var_symbols;
     }
   in
+  let f = Symbol_table.lookup func.fname scope.fun_symbols |> Option.get in
+  let ret_type = build_llvm_type scope.struct_symbols func.typ in
   let f_builder = L.entry_block f |> L.builder_at_end llcontext in
   let build_param scope builder (t, i) p =
     let tp =
@@ -485,7 +475,7 @@ let codegen_global_variable llmodule scope (t, i) init =
 
 let codegen_topdecl llmodule scope n =
   match n.node with
-  | Fundecl f -> codegen_func llmodule scope f |> ignore
+  | Fundecl f -> codegen_func  scope f |> ignore
   | Vardec (t, i, init) -> codegen_global_variable llmodule scope (t, i) init
   | Structdecl s ->
       let named_s = L.named_struct_type llcontext s.sname in
@@ -519,6 +509,26 @@ let add_rt_support llmodule scope =
            scope.fun_symbols
          |> ignore)
 
+let add_function llmodule scope node =
+  match node.node with
+  | Fundecl func ->
+  let ret_type = build_llvm_type scope.struct_symbols func.typ in
+  let formals_types =
+    func.formals |> List.map fst
+    |> List.map (fun t ->
+           match t with
+           | TypA (t1, _) -> (*all arrays become pointers *)
+               build_llvm_type scope.struct_symbols t1 |> L.pointer_type
+           | _ -> build_llvm_type scope.struct_symbols t)
+  in
+  let f_type = L.function_type ret_type (Array.of_list formals_types) in
+  let f = L.define_function func.fname f_type llmodule in
+    {
+      scope with
+      fun_symbols = Symbol_table.add_entry func.fname f scope.fun_symbols;
+    }
+  | _ -> scope
+
 let to_llvm_module (Prog topdecls) =
   let module_name = "microc_module" in
   let llmodule = L.create_module llcontext module_name in
@@ -529,6 +539,7 @@ let to_llvm_module (Prog topdecls) =
       struct_symbols = Symbol_table.empty_table ();
     }
   in
-  add_rt_support llmodule init_scope;
-  List.iter (codegen_topdecl llmodule init_scope) topdecls;
+  let function_scope = List.fold_left (add_function llmodule) init_scope topdecls in
+  add_rt_support llmodule function_scope;
+  List.iter (codegen_topdecl llmodule function_scope) topdecls;
   llmodule

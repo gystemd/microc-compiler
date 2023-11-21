@@ -365,16 +365,9 @@ let check_parameter scope loc (t, i) =
 let check_func f scope loc =
 
   check_fun_type loc f.typ;
-  let rec_scope =
-    try Symbol_table.add_entry f.fname (loc, f) scope.fun_symbols
-    with Symbol_table.DuplicateEntry d->
-      raise @@ Semantic_error( loc,
-      "function " ^ d ^ " already defined")
-  in
   let new_scope =
     {
       scope with
-      fun_symbols = rec_scope;
       var_symbols = Symbol_table.begin_block scope.var_symbols;
     }
   in
@@ -461,6 +454,16 @@ let rt_support=
     Rt_support.rt_functions;
   init_scope
 
+let add_function scope node =
+  match node.node with
+  | Fundecl f -> let new_scope = try Symbol_table.add_entry f.fname (node.loc, f) scope.fun_symbols
+    with DuplicateEntry d->
+      raise @@ Semantic_error( node.loc,
+      "function " ^ d ^ " already defined")
+    in
+    {scope with fun_symbols = new_scope}
+  | _ -> scope
+
 let type_check (Prog topdecls) =
   let toplevel_scope =
     {
@@ -469,7 +472,15 @@ let type_check (Prog topdecls) =
       struct_symbols = Symbol_table.empty_table ();
     }
   in
-  (*Iterate and check top declarations *)
-  List.iter (check_topdecl toplevel_scope) topdecls;
+  (*place the main function at the end in order to allow order-independet function definitions*)
+  (* let main_decl = List.find_opt (fun x -> match x.node with Fundecl f -> f.fname = "main" | _ -> false) topdecls in
+  let topdecls_no_main = List.filter (fun x -> match x.node with Fundecl f -> f.fname <> "main" | _ -> true) topdecls in
+  let topdecls_reordered = match main_decl with
+    | Some main -> topdecls_no_main @ [main]
+    | None -> topdecls_no_main
+  in
+  List.iter (check_topdecl toplevel_scope) topdecls_reordered; *)
+  let function_scope = List.fold_left add_function toplevel_scope topdecls
+  in List.iter (check_topdecl function_scope) topdecls;
   check_global_properties toplevel_scope |> ignore;
   Prog topdecls
