@@ -158,6 +158,7 @@ expr:
 lexpr:
 | i = ID {node (AccVar(i)) $loc}
 | LPAREN l = lexpr RPAREN {l}
+| TIMES ADDRESS l=lexpr {node (AccDeref(node (Addr(l)) $loc)) $loc}
 | TIMES l = lexpr {node (AccDeref(node (Access(l)) $loc)) $loc}
 | l=lexpr LBRACKET e = expr RBRACKET { node (AccIndex(l,e)) $loc}
 | l = lexpr DOT f=ID {node (AccField(l,f)) $loc}
@@ -221,7 +222,7 @@ aexpr:
   {node (Null) $loc}
 | LPAREN r=rexpr RPAREN 
   {r}
-| ADDRESS l=lexpr 
+| ADDRESS l=lexpr
   {node (Addr(l)) $loc}
 
 
