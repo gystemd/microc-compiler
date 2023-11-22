@@ -19,6 +19,7 @@ let string_of_uop = function
 | Not -> "!"
 | PreInc | PostInc -> "++"
 | PreDec | PostDec -> "--"
+| BNot -> "~"
 
 let string_of_binop = function
   | Add -> "+"
@@ -35,6 +36,11 @@ let string_of_binop = function
   | And -> "&&"
   | Or -> "||"
   | Comma -> ","
+  | BOr -> "|"
+  | BAnd -> "&"
+  | BXor -> "^"
+  | LShift -> "<<"
+  | RShift -> ">>"
 type var_info = Location.code_pos * typ
 
 type fun_info = Location.code_pos * fun_decl
@@ -144,7 +150,7 @@ let rec match_types loc t1 t2 =
 let binaryexp_type loc op et1 et2 =
 
   match (op, et1, et2) with
-  | (Add | Sub | Mult | Div | Mod | Comma), TypI, TypI -> TypI
+  | (Add | Sub | Mult | Div | Mod | Comma| BOr| BAnd| BXor| LShift | RShift), TypI, TypI -> TypI
   | (Add | Sub | Mult | Div | Mod | Comma), TypF, TypF -> TypF
   | (Equal | Neq | Less | Leq | Greater | Geq), TypI, TypI -> TypB
   | (Equal | Neq | Less | Leq | Greater | Geq), TypF, TypF -> TypB
@@ -164,11 +170,13 @@ let unaryexp_type loc u et =
   | Neg, TypI -> TypI
   | Neg, TypF -> TypF
   | Not, TypB -> TypB
+  | BNot, TypI -> TypI
   | (PreInc | PreDec | PostInc | PostDec), (TypI | TypF) -> et
-  | (PreInc | PreDec | PostInc | PostDec), _ | Neg, _ | Not, _ ->
+  | (PreInc | PreDec | PostInc | PostDec), _ | Neg, _ | Not, _| BNot, _ ->
       raise @@ Semantic_error( loc,
       "Operator " ^ string_of_uop u ^ " not defined for type "
       ^ string_of_type et)
+
 
 (* Assigns a type to the given expression, following language rules *)
 let rec expr_type scope e =

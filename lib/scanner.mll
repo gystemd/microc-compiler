@@ -90,7 +90,12 @@ rule next_token = parse
     | "*=" {SHORTMUL}
     | "/=" {SHORTDIV}
     | "%=" {SHORTMOD}
-    | "||" { OR}
+    | "|" {BOR}
+    | "||" {OR}
+    | "^" {BXOR}
+    | "~" {BNOT}
+    | "<<" {LSHIFT}
+    | ">>" {RSHIFT}
     | eof   { EOF}
     | _ as c           { raise_lexer_error lexbuf @@ "Illegal character " ^ Char.escaped c }
 

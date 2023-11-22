@@ -56,6 +56,7 @@ let unop = function
   | t, Neg when t = int_type -> L.build_neg
   | t, Neg when t = float_type -> L.build_fneg
   | t, Not when t = bool_type -> L.build_not
+  | t, BNot when t = int_type -> L.build_not
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 
 let bin_op = function
@@ -71,6 +72,11 @@ let bin_op = function
   | t1, t2, Geq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sge
   | t1, t2, Equal when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Eq
   | t1, t2, Neq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Ne
+  | t1, t2, BAnd when t1 = int_type && t2 = int_type -> L.build_and
+  | t1, t2, BOr when t1 = int_type && t2 = int_type -> L.build_or
+  | t1, t2, BXor when t1 = int_type && t2 = int_type -> L.build_xor
+  | t1, t2, LShift when t1 = int_type && t2 = int_type -> L.build_shl
+  | t1, t2, RShift when t1 = int_type && t2 = int_type -> L.build_lshr
   | t1, t2, Add when t1 = float_type && t2 = float_type -> L.build_fadd
   | t1, t2, Sub when t1 = float_type && t2 = float_type -> L.build_fsub
   | t1, t2, Div when t1 = float_type && t2 = float_type -> L.build_fdiv

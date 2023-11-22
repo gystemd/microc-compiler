@@ -13,9 +13,14 @@ type binop =
   | And
   | Or
   | Comma
+  | BOr
+  | BAnd
+  | BXor
+  | LShift
+  | RShift
 [@@deriving show]
 
-type uop = Neg | Not | PreInc | PreDec | PostInc | PostDec   [@@deriving show]
+type uop = Neg | Not | PreInc | PreDec | PostInc | PostDec | BNot   [@@deriving show]
 
 
 
