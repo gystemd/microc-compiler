@@ -1,42 +1,34 @@
 #!/bin/bash
-prefix="fail"
-# iterate all files in the samples directory
-for filepath in samples/*; do
-    file=$(basename "$filepath")
-    if [[ "$file" == "test-ex11.mc" ]]; then
-        continue
-    fi
-    if [[ "$file" == *"out" ]]; then
-        continue
-    fi
+#!/bin/bash
 
-    if [[ "$file" == "fail"* ]]; then
-        if dune exec bin/microcc.exe -- $filepath > /dev/null; then
-           echo "❌ test $filepath"
-        else
-           echo "✅ test $filepath"
-        fi
+clang="clang -w"
+microcc="bin/microcc.exe"
+for file in samples/*fail*.mc; do
+    name=${file%%.*}
+    dune exec -- $microcc $name.mc -o $name.bc > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Test $name ✅"
     else
-        dune exec bin/microcc.exe -- $filepath
-        clang a.bc bin/rt-support.c
-        ./a.out > res.txt
-        result="res.txt"
-        outfile=${filepath%.mc}.out
-        echo "file $outfile"
-        echo "expected result"
-        cat $outfile
-        echo "----------------"
-        echo "result"
-        cat $result
-        echo "----------------"
-        if cmp "$res" "$outfile"; then
-            echo "❌ test $filepath"
-            echo "diff res.txt samples/$prefix$file.out"
-        else
-            echo "✅ test $outfile"
-        fi
-        # echo "to implement"
+        echo "Test $name ❌"
     fi
 done
 
-exit 0
+for file in samples/test*.mc; do
+    name=${file%%.*}
+    dune exec -- $microcc $name.mc -o $name.bc
+    if [ $? -ne 0 ]; then
+        break
+    fi
+    $clang $name.bc bin/rt-support.c -o $name.elf
+    diff <($name.elf) $name.out
+    if [ $? -ne 0 ]; then
+        rm -f $name.elf
+        echo "Test $name ❌"
+    fi
+    echo "Test $name ✅"
+    rm -f $name.elf
+
+done
+
+rm -f samples/*.bc
+rm -f samples/*.elf
