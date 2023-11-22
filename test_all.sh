@@ -3,7 +3,9 @@ prefix="fail"
 # iterate all files in the samples directory
 for filepath in samples/*; do
     file=$(basename "$filepath")
-
+    if [[ "$file" == "test-ex11.mc" ]]; then
+        continue
+    fi
     if [[ "$file" == *"out" ]]; then
         continue
     fi

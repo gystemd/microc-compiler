@@ -384,26 +384,30 @@ let rec codegen_stmt fdef scope builder stmt =
 
 and codegen_stmtordec fdef scope builder st =
   match st.node with
-  | Dec (t, i, init) ->
-      let var_v =
-        L.build_alloca (build_llvm_type scope.struct_symbols t) i builder
-      in
-      let get_init_val e =
-        let e_val = codegen_expr scope builder e in
-        if
-          L.type_of e_val |> L.element_type |> L.classify_type
-          = L.TypeKind.Array (*string literal *)
-        then e_val
-        else
-          let value =
-            normalize_expr e_val (build_llvm_type scope.struct_symbols t)
-          in
+  | DecList l ->
+        let var_gen scope builder (t, i, init) =
+        let var_v =
+          L.build_alloca (build_llvm_type scope.struct_symbols t) i builder
+        in
+        let get_init_val e =
+          let e_val = codegen_expr scope builder e in
+          if
+            L.type_of e_val |> L.element_type |> L.classify_type
+            = L.TypeKind.Array (*string literal *)
+          then e_val
+          else
+            let value =
+              normalize_expr e_val (build_llvm_type scope.struct_symbols t)
+            in
 
-          L.build_store value var_v builder |> ignore;
-          var_v
+            L.build_store value var_v builder |> ignore;
+            var_v
+        in
+        let actual_value = Option.fold ~none:var_v ~some:get_init_val init in
+        Symbol_table.add_entry i actual_value scope.var_symbols |> ignore;
+        ()
       in
-      let actual_value = Option.fold ~none:var_v ~some:get_init_val init in
-      Symbol_table.add_entry i actual_value scope.var_symbols |> ignore;
+      List.iter (var_gen scope builder) l;
       true
   | Stmt s -> codegen_stmt fdef scope builder s
 
@@ -476,7 +480,11 @@ let codegen_global_variable llmodule scope (t, i) init =
 let codegen_topdecl llmodule scope n =
   match n.node with
   | Fundecl f -> codegen_func  scope f |> ignore
-  | Vardec (t, i, init) -> codegen_global_variable llmodule scope (t, i) init
+  | VarDecList l ->
+      let var_gen llmodule scope (t, i, init) =
+        codegen_global_variable llmodule scope (t, i) init
+      in
+    List.iter (var_gen llmodule scope) l
   | Structdecl s ->
       let named_s = L.named_struct_type llcontext s.sname in
       Symbol_table.add_entry s.sname

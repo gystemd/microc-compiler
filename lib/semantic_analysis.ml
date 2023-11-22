@@ -3,7 +3,7 @@ exception Semantic_error of Location.code_pos * string
 open Ast
 open Symbol_table
 let rec string_of_type  = function
-  | TypI -> "int" 
+  | TypI -> "int"
   | TypC -> "char"
   | TypF -> "float"
   | TypB -> "bool"
@@ -13,14 +13,14 @@ let rec string_of_type  = function
   | TypNull -> "null"
   | TypA(t, v) -> string_of_type t ^ "["^( Option.fold ~none:"" ~some:string_of_int v) ^ "]"
 
-let string_of_uop = function 
-  
+let string_of_uop = function
+
 | Neg -> "-"
 | Not -> "!"
 | PreInc | PostInc -> "++"
 | PreDec | PostDec -> "--"
 
-let string_of_binop = function 
+let string_of_binop = function
   | Add -> "+"
   | Sub -> "-"
   | Mult -> "*"
@@ -50,14 +50,15 @@ type symbols = {
   Function that allows strings to be used as variable initializer
 
   - If the array is declared with no initial size, the assigned size will be equal to string_length + 1(for null)
-  - Otherwise we only assign the string if the array has bigger size. 
+  - Otherwise we only assign the string if the array has bigger size.
 
   This function  could be modified to handle general array literals
  *)
+
 let string_var_initialization loc vars array_length id string =
   try
     let length = string |> String.length in
-    
+
     if array_length = 0 then
       Symbol_table.add_entry id (loc, TypA (TypC, Some (length + 1))) vars
       |> ignore
@@ -69,7 +70,7 @@ let string_var_initialization loc vars array_length id string =
              ^ " but array was declared with size "
              ^ (array_length |> string_of_int) )
     else
-      
+
       Symbol_table.add_entry id (loc, TypA (TypC, Some array_length)) vars
       |> ignore
   with DuplicateEntry id->
@@ -324,23 +325,31 @@ let rec check_stmt scope ftype s =
 
 and check_stmtordec scope ftype s =
   match s.node with
-  | Dec (t, i, None) -> check_var_decl scope s.loc (t, i); true
-  | Dec (t, i, Some e) -> (
-      match (t, e.node) with
-      | TypA (TypC, None), String str ->
-          string_var_initialization s.loc scope.var_symbols 0 i str;
-      | TypA (TypC, Some v), String str ->
-          string_var_initialization s.loc scope.var_symbols v i str;
-      | _ -> (
-          check_var_decl scope s.loc (t, i);
-          let et = expr_type scope e in
-          match et with
-          | TypA (_, _) -> (* Array initializers are disallowed *)
-              raise @@ Semantic_error( s.loc,
-                "Array is not a valid value initializer")
-          | _ ->
-              if match_types s.loc t et then ()
-              else raise @@ Semantic_error( s.loc, "Value of different type"))); true
+  | DecList l ->
+      let check_var loc x =
+        match x with
+        | t, id, None -> check_var_decl scope loc (t, id)
+        | t, id, Some e -> (
+            match (t, e.node) with
+            | TypA (TypC, None), String str ->
+                string_var_initialization loc scope.var_symbols 0 id str
+            | TypA (TypC, Some v), String str ->
+                string_var_initialization loc scope.var_symbols v id str
+            | _ -> (
+                check_var_decl scope loc (t, id);
+                let et = expr_type scope e in
+                match et with
+                | TypA (_, _) ->
+                    (* Array initializers are disallowed *)
+                    raise
+                    @@ Semantic_error
+                         (loc, "Array is not a valid value initializer")
+                | _ ->
+                    if match_types loc t et then ()
+                    else raise @@ Semantic_error (loc, "Value of different type")
+                ))
+      in
+      List.iter (check_var s.loc) l; true
   | Stmt s -> check_stmt scope ftype s
 
 
@@ -400,18 +409,23 @@ let rec global_expr_type scope loc e =
 let check_topdecl scope node =
   match node.node with
   | Fundecl f -> check_func f scope node.loc
-  | Vardec (t, i, None) -> check_var_decl scope node.loc (t, i)
-  | Vardec (t, i, Some e) -> (
-      match (t, e.node) with
-      | TypA (TypC, None), String str ->
-          string_var_initialization node.loc scope.var_symbols 0 i str
-      | TypA (TypC, Some v), String str ->
-          string_var_initialization node.loc scope.var_symbols v i str
-      | _ ->
-          check_var_decl scope node.loc (t, i);
-          let et = global_expr_type scope node.loc e in
-          if match_types node.loc t et then () (* since global expression cannot be arrays we can directly use match_types *)
-          else raise @@ Semantic_error( node.loc, "Value of different type"))
+  | VarDecList l ->
+      let check_var loc x =
+        match x with
+        | t, i, None -> check_var_decl scope loc (t, i)
+        | t, i, Some expr -> (
+            match (t, expr.node) with
+            | TypA (TypC, None), String str ->
+                string_var_initialization loc scope.var_symbols 0 i str
+            | TypA (TypC, Some v), String str ->
+                string_var_initialization loc scope.var_symbols v i str
+            | _ ->
+                check_var_decl scope loc (t, i);
+                let et = global_expr_type scope loc expr in
+                if match_types loc t et then ()
+                  (* since global expression cannot be arrays we can directly use match_types *)
+                else raise @@ Semantic_error (loc, "Value of different type")) in
+    List.iter (check_var  node.loc) l
   | Structdecl s -> (
       try
         (*immediately adds its own name to defined structs *)

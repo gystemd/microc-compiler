@@ -1,9 +1,9 @@
- %{
+%{
         open Ast
-      
-       
+
+
         (* helper function to create the AST nodes*)
-        let node nd loc = {loc = Location.to_code_position(loc); node = nd; id=0}
+        let node nd loc = {loc = (Location.to_code_position loc); node = nd; id=0}
        
          (* utility functions to convert a for to a while *)         
         let for_opt_init e loc =
@@ -16,12 +16,11 @@
               match e with
               | Some(x) -> x
               | None -> node (BLiteral(true)) loc
-  
+
         let for_opt_incr e loc =
               match e with
               | Some(x) -> node (Stmt(node (Expr(x)) loc)) loc
               | None -> node (Stmt( node (Block([])) loc)) loc
-        
 
 %}
 
@@ -71,16 +70,16 @@
 
 
 program:
-  | p = list(topdec) EOF     {Prog p}                
+  | p = list(topdec) EOF     {Prog p}
 ;
 
 
 
 topdec:
-| v = vardecl e = option(preceded(ASSIGN,expr)) SEMI {node (Vardec(fst v, snd v,e)) $loc}
-| t = typ i = ID LPAREN fs=separated_list(COMMA, vardecl) RPAREN b=block 
+| vl = varlist SEMI {node (VarDecList(vl)) $loc}
+| t = typ i = ID LPAREN fs=separated_list(COMMA, funparam) RPAREN b=block
   {node (Fundecl({typ=t; fname=i; formals=fs; body=b})) $loc}
-| STRUCT i = ID LBRACE l=list(terminated(vardecl,SEMI)) RBRACE SEMI 
+| STRUCT i = ID LBRACE l=list(terminated(funparam,SEMI)) RBRACE SEMI
   {node (Structdecl({sname=i; fields=l})) $loc}
 ;
 
@@ -92,11 +91,17 @@ typ:
   | VOID {TypV}
   | STRUCT i = ID {TypS(i)}
 ;
-vardecl:
+
+funparam:
+| t = typ v=vardesc {((fst v) t, snd v)}
+varlist:
 /* Unwraps the type declarations, applying the final function to t */
-| t = typ v = vardesc {((fst v) t, snd v)}
+| t = typ v = separated_list(COMMA, vardecl) {List.map (fun (a,b,c) -> (a t, b, c)) v}
 ;
 
+vardecl:
+| v = vardesc e = option(preceded(ASSIGN,expr)) {((fst v) , snd v, e)}
+;
 vardesc:
 /* The inner type is given by vardesc so we compose functions instead of directly applying the type*/
 | i = ID  {((fun t -> t), i)} 
@@ -113,7 +118,7 @@ block:
 
 stmtordec:
 | s = statement {node (Stmt(s)) $loc}
-| v = vardecl e = option(preceded(ASSIGN,expr)) SEMI {node (Dec(fst v, snd v,e)) $loc}
+| v = varlist SEMI {node (DecList(v)) $loc}
 ;
 statement: 
 | RETURN e = option(expr) SEMI {node (Return(e)) $loc}
@@ -218,3 +223,5 @@ aexpr:
   {r}
 | ADDRESS l=lexpr 
   {node (Addr(l)) $loc}
+
+

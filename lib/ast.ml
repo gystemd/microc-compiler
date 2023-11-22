@@ -80,7 +80,7 @@ and stmt_node =
 and stmtordec = stmtordec_node annotated_node
 
 and stmtordec_node =
-  | Dec of typ * identifier * expr option (* Local variable declaration  *)
+  | DecList of (typ * identifier * expr option) list (* Local variable declaration  *)
   | Stmt of stmt (* A statement                 *)
 [@@deriving show]
 
@@ -99,7 +99,7 @@ type struct_decl = {
 [@@deriving show]
 type topdecl = topdecl_node annotated_node
 
-and topdecl_node = Fundecl of fun_decl | Vardec of typ * identifier * expr option | Structdecl of struct_decl
+and topdecl_node = Fundecl of fun_decl | VarDecList of (typ * identifier * expr option) list | Structdecl of struct_decl
 [@@deriving show]
 
 type program = Prog of topdecl list [@@deriving show]
