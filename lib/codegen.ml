@@ -351,22 +351,17 @@ let rec codegen_stmt fdef scope builder stmt =
       codegen_stmt fdef scope else_builder st2 |> ignore;
       add_terminator else_builder (L.build_br blockcont);
       L.position_at_end blockcont builder;
-      true (*always continue code generation after an if *)
   | Expr e ->
       codegen_expr scope builder e |> ignore;
-      true
   | Block b ->
       let new_scope =
         { scope with var_symbols = Symbol_table.begin_block scope.var_symbols }
       in
       (*
-      As soon as codegen_stmt returns false, stops generating instructions. 
+      As soon as codegen_stmt returns false, stops generating instructions.
       Needed to handle instructions after an always reached return statement
       *)
-      List.fold_left
-        (fun cont bl ->
-          if cont then codegen_stmtordec fdef new_scope builder bl else false)
-        true b
+      List.iter( codegen_stmtordec fdef new_scope builder) b
   | Return e ->
       (if Option.is_none e then L.build_ret_void |> add_terminator builder
       else
@@ -374,13 +369,10 @@ let rec codegen_stmt fdef scope builder stmt =
         let v = normalize_expr e_val (L.type_of fdef |> L.pointer_type) in
 
         v |> L.build_ret |> add_terminator builder);
-      false
   | While (e, s) ->
       build_while fst e s; (*condition is the first instruction *)
-      true (*always continue code generation after a while *)
-  | DoWhile (e, s) -> 
+  | DoWhile (e, s) ->
       build_while snd e s; (*body is the first instruction *)
-      true 
 
 and codegen_stmtordec fdef scope builder st =
   match st.node with
@@ -408,7 +400,6 @@ and codegen_stmtordec fdef scope builder st =
         ()
       in
       List.iter (var_gen scope builder) l;
-      true
   | Stmt s -> codegen_stmt fdef scope builder s
 
 (*
