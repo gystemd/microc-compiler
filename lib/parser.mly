@@ -28,6 +28,7 @@
 
 %token IF RETURN ELSE FOR WHILE DO INT CHAR VOID NULL BOOL FLOAT STRUCT
 %token PLUS MINUS TIMES DIVIDE MOD DOT
+%token SIZEOF
 %token AND OR EQ NEQ NOT GT LT GEQ LEQ BOR BNOT BXOR LSHIFT RSHIFT
 %token ADDRESS ASSIGN
 %token LPAREN RPAREN LBRACKET RBRACKET LBRACE RBRACE
@@ -49,10 +50,10 @@
 %right ASSIGN SHORTADD SHORTDIV SHORTMIN SHORTMUL SHORTMOD
 %left OR BXOR BNOT LSHIFT RSHIFT
 %left BOR
-%left AND 
+%left AND
 %left EQ NEQ
 %nonassoc GT LT GEQ LEQ
-%left PLUS MINUS 
+%left PLUS MINUS
 %left TIMES DIVIDE MOD
 %nonassoc NOT ADDRESS
 %left DOT
@@ -167,7 +168,8 @@ lexpr:
 
 rexpr:
 | a = aexpr {a}
-| i = ID LPAREN p=separated_list(COMMA,expr) RPAREN 
+| SIZEOF LPAREN e=expr RPAREN{node (SizeOf(e)) $loc}
+| i = ID LPAREN p=separated_list(COMMA,expr) RPAREN
   {node (Call(i,p)) $loc}
 | l = lexpr ASSIGN e = expr {node (Assign(l, e)) $loc}
 | u=unaryOp e=expr {node (UnaryOp(u, e)) $loc}
@@ -178,6 +180,7 @@ rexpr:
 | l  = lexpr INCREMENT {node (UnaryOp(PostInc,node (Access(l)) $loc )) $loc}
 | l  = lexpr DECREMENT {node (UnaryOp(PostDec,node (Access(l)) $loc )) $loc}
 ;
+
 (*binop is inline in order to not have shift reduce conflicts*)
 %inline binOp:
 | PLUS  {Add}

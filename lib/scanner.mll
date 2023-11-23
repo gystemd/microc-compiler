@@ -45,6 +45,7 @@ let ws = [' ' '\t']+
 rule next_token = parse
     | ws+       {next_token lexbuf}
     | newline {Lexing.new_line lexbuf; next_token lexbuf}
+    | "sizeof" {SIZEOF}
     | id as word
         {
           match Hashtbl.find_opt keywords word with

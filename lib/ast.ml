@@ -60,6 +60,7 @@ and expr_node =
   | UnaryOp of uop * expr (* Unary primitive operator    *)
   | BinaryOp of binop * expr * expr (* Binary primitive operator   *)
   | Call of identifier * expr list (* Function call f(...)        *)
+  | SizeOf of expr (* Size of a type              *)
 [@@deriving show]
 
 and access = access_node annotated_node

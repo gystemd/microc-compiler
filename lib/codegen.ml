@@ -1,7 +1,6 @@
 exception Codegen_error of string
 
 open Ast
-
 module L = Llvm
 
 let llcontext = L.global_context ()
@@ -237,6 +236,15 @@ let rec codegen_expr scope builder e =
       in
       (*gets the correct binary expression and builds the actual instruction *)
       bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
+| SizeOf e -> (
+    let t = codegen_expr scope builder e |> L.type_of in
+    let size = match L.classify_type t with
+    | L.TypeKind.Pointer ->
+        L.size_of (L.element_type t)
+    | _ ->
+        L.size_of t
+    in
+    L.build_trunc size int_type "" builder)
   | Call (f, params) ->
       let actual_f =
         match Symbol_table.lookup f scope.fun_symbols with

@@ -217,6 +217,7 @@ let rec expr_type scope e =
       let et1 = expr_type scope e1 in
       let et2 = expr_type scope e2 in
       binaryexp_type e.loc op et1 et2
+  | SizeOf e -> expr_type scope e |> ignore; TypI
   | Call (id, params) -> (
       (*
         - Checks that the called function exists in the current scope
