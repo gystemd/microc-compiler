@@ -86,8 +86,7 @@ let () =
     let verify = ref false in
     let spec_list =
       [
-        ("-p", 
-          Arg.Unit (fun () -> action := Parse), "Parse and print AST");
+        ("-p", Arg.Unit (fun () -> action := Parse), "Parse and print AST");
         ( "-t",
           Arg.Unit (fun () -> action := Type_check),
           "Type checks and print the result" );
@@ -118,7 +117,11 @@ let () =
       let lexbuf = Lexing.from_string ~with_positions:true source in
       try action_function !outputfile !optimize !verify !action lexbuf with
       | Scanner.Lexing_error (pos, msg) | Parsing.Syntax_error (pos, msg) ->
-          handle_syntatic_error source pos msg; exit 1
+          handle_syntatic_error source pos msg;
+          exit 1
       | Semantic_analysis.Semantic_error (pos, msg) ->
-          handle_semantic_error source pos msg; exit 1
-  with Sys_error msg -> (Printf.eprintf "*** Error %s ***\n" msg; exit 1)
+          handle_semantic_error source pos msg;
+          exit 1
+  with Sys_error msg ->
+    Printf.eprintf "*** Error %s ***\n" msg;
+    exit 1

@@ -1,4 +1,5 @@
 open Ast
+
 let rt_functions =
   [
     ( "print",
@@ -50,4 +51,3 @@ let rt_functions =
           body = { loc = Location.dummy_code_pos; node = Block []; id = 0 };
         } ) );
   ]
-

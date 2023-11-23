@@ -20,16 +20,18 @@ type binop =
   | RShift
 [@@deriving show]
 
-type uop = Neg | Not | PreInc | PreDec | PostInc | PostDec | BNot   [@@deriving show]
-
-
+type uop = Neg | Not | PreInc | PreDec | PostInc | PostDec | BNot
+[@@deriving show]
 
 type identifier = string [@@deriving show]
 
-
 let dummy_pos = (Lexing.dummy_pos, Lexing.dummy_pos)
 
-type 'a annotated_node = { loc : Location.code_pos; [@opaque] node : 'a; id : int }
+type 'a annotated_node = {
+  loc : Location.code_pos; [@opaque]
+  node : 'a;
+  id : int;
+}
 [@@deriving show]
 
 type typ =
@@ -52,7 +54,7 @@ and expr_node =
   | ShortAssign of access * binop * expr
   | Addr of access (* &x   or  &*p   or  &a[e]    *)
   | ILiteral of int (* Integer literal             *)
-  | FLiteral of float 
+  | FLiteral of float
   | CLiteral of char (* Char literal                *)
   | BLiteral of bool (* Bool literal                *)
   | String of string
@@ -77,7 +79,7 @@ and stmt = stmt_node annotated_node
 and stmt_node =
   | If of expr * stmt * stmt (* Conditional                 *)
   | While of expr * stmt (* While loop                  *)
-  | DoWhile of expr*stmt
+  | DoWhile of expr * stmt
   | Expr of expr (* Expression statement   e;   *)
   | Return of expr option (* Return statement            *)
   | Block of stmtordec list (* Block: grouping and scope   *)
@@ -86,7 +88,8 @@ and stmt_node =
 and stmtordec = stmtordec_node annotated_node
 
 and stmtordec_node =
-  | DecList of (typ * identifier * expr option) list (* Local variable declaration  *)
+  | DecList of
+      (typ * identifier * expr option) list (* Local variable declaration  *)
   | Stmt of stmt (* A statement                 *)
 [@@deriving show]
 
@@ -98,14 +101,15 @@ type fun_decl = {
 }
 [@@deriving show]
 
-type struct_decl = {
-  sname : string;
-  fields :  (typ*identifier) list;
-}
+type struct_decl = { sname : string; fields : (typ * identifier) list }
 [@@deriving show]
+
 type topdecl = topdecl_node annotated_node
 
-and topdecl_node = Fundecl of fun_decl | VarDecList of (typ * identifier * expr option) list | Structdecl of struct_decl
+and topdecl_node =
+  | Fundecl of fun_decl
+  | VarDecList of (typ * identifier * expr option) list
+  | Structdecl of struct_decl
 [@@deriving show]
 
 type program = Prog of topdecl list [@@deriving show]
