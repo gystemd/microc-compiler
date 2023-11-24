@@ -79,9 +79,7 @@ let string_var_initialization location vars array_length id string =
       Symbol_table.add_entry id (location, TypA (TypC, Some array_length)) vars
       |> ignore
   with DuplicateEntry id ->
-    raise
-    @@ Semantic_error
-         (location, "Variable " ^ id ^ " already defined in current symbols")
+    raise @@ Semantic_error (location, "error: redefinition of " ^ id)
 
 let rec defined_type_size typ =
   (*checks if the given type is complete *)
@@ -95,10 +93,13 @@ let rec check_type structs location t =
   | TypA (TypV, _) ->
       raise @@ Semantic_error (location, "Cannot declare a void array")
   | TypA (_, Some i) when i < 1 ->
-      raise @@ Semantic_error (location, "Array size must be greater than zero")
+      raise
+      @@ Semantic_error
+           (location, "Cannot declare an array with size less than one")
   | TypA (t, _) when not (defined_type_size t) ->
       raise @@ Semantic_error (location, "Cannot declare undefined-size array")
-  | TypP TypV -> raise @@ Semantic_error (location, "Cannot declare a void pointer")
+  | TypP TypV ->
+      raise @@ Semantic_error (location, "Cannot declare a void pointer")
   | TypP t -> check_type structs location t
   | TypS s -> (
       match Symbol_table.lookup s structs with
@@ -110,17 +111,14 @@ let check_var_type structs location t =
   match t with
   | TypV -> raise @@ Semantic_error (location, "Cannot declare a void variable")
   | TypA (_, None) ->
-      raise
-      @@ Semantic_error (location, "Size missing for array declaration")
+      raise @@ Semantic_error (location, "Size missing for array declaration")
   | _ -> check_type structs location t
 
 let check_var_decl symbols location (t, i) =
   check_var_type symbols.struct_symbols location t;
   try Symbol_table.add_entry i (location, t) symbols.var_symbols |> ignore
   with DuplicateEntry i ->
-    raise
-    @@ Semantic_error
-         (location, "Variable " ^ i ^ " already defined in current symbols")
+    raise @@ Semantic_error (location, "error: redefinition of " ^ i)
 
 let check_fun_type location typ =
   match typ with
@@ -171,29 +169,39 @@ let binaryexp_type location op et1 et2 =
              ^ " is not defined when the operands have type "
              ^ string_of_type et1 ^ " and " ^ string_of_type et2 )
 
-let unaryexp_type location u et =
-  match (u, et) with
+(**
+    Infers the type of an unary-operator expression
+    @param location The location of the expression in the source code
+    @param u        The unary operator
+    @param et       The type of the expression
+**)
+let unaryexp_type location unop exp_typ =
+  match (unop, exp_typ) with
   | Neg, TypI -> TypI
   | Neg, TypF -> TypF
   | Not, TypB -> TypB
   | BNot, TypI -> TypI
-  | (PreIncr | PreDecr | PostIncr | PostDecr), (TypI | TypF) -> et
+  | (PreIncr | PreDecr | PostIncr | PostDecr), (TypI | TypF) -> exp_typ
   | (PreIncr | PreDecr | PostIncr | PostDecr), _ | Neg, _ | Not, _ | BNot, _ ->
       raise
       @@ Semantic_error
            ( location,
-             "Operator " ^ string_of_uop u ^ " not defined for type "
-             ^ string_of_type et )
+             "Operator " ^ string_of_uop unop ^ " not defined for type "
+             ^ string_of_type exp_typ )
 
-(* Assigns a type to the given expression, following language rules *)
-let rec expr_type symbols exp =
-  match exp.node with
+(**
+    Infers the type of an expression
+    @param symbols  The current symbol table
+    @param expr     The expression to be inferred
+**)
+let rec expr_type symbols expr =
+  match expr.node with
   | Access a -> access_type symbols a
   | Assign (a, e) -> (
       let at = access_type symbols a in
       match at with
       | TypA (_, _) ->
-          raise @@ Semantic_error (e.loc, "trying to reassign array")
+          raise @@ Semantic_error (e.loc, "array cannot be reassigned")
       | _ ->
           let et = expr_type symbols e in
           if match_types e.loc at et then at
@@ -221,20 +229,15 @@ let rec expr_type symbols exp =
   | Null -> TypNull
   | UnaryOp (u, e1) ->
       let et = expr_type symbols e1 in
-      unaryexp_type exp.loc u et
+      unaryexp_type expr.loc u et
   | BinaryOp (op, e1, e2) ->
       let et1 = expr_type symbols e1 in
       let et2 = expr_type symbols e2 in
-      binaryexp_type exp.loc op et1 et2
+      binaryexp_type expr.loc op et1 et2
   | SizeOf e ->
       expr_type symbols e |> ignore;
       TypI
   | Call (id, params) -> (
-      (*
-        - Checks that the called function exists in the current symbols
-        - Checks that the correct number of arguments is passed
-        . Checks that the parameters passed have the correct type  
-       *)
       let params_types = List.map (expr_type symbols) params in
       match Symbol_table.lookup id symbols.fun_symbols with
       | Some (_, f) -> (
@@ -243,26 +246,27 @@ let rec expr_type symbols exp =
           | l1, l2 when l1 < l2 ->
               raise
               @@ Semantic_error
-                   (exp.loc, "Missing one or more arguments in function call")
+                   (expr.loc, "too few arguments to function " ^ f.fname)
           | l1, l2 when l1 > l2 ->
               raise
-              @@ Semantic_error (exp.loc, "Too many arguments in function call")
+              @@ Semantic_error
+                   (expr.loc, "Too many arguments to function " ^ f.fname)
           | _ ->
               List.iter2
                 (fun ft pt ->
-                  if match_types exp.loc ft pt then ()
+                  if match_types expr.loc ft pt then ()
                   else
                     raise
                     @@ Semantic_error
-                         ( exp.loc,
+                         ( expr.loc,
                            "Function " ^ f.fname
                            ^ " expects a parameter with type "
                            ^ string_of_type ft ^ " but an expression with type "
                            ^ string_of_type pt ^ " was passed" ))
                 formals_types params_types;
               f.typ)
-      | None -> raise @@ Semantic_error (exp.loc, "Function " ^ id ^ "not defined")
-      )
+      | None ->
+          raise @@ Semantic_error (expr.loc, "Function " ^ id ^ "not defined"))
 
 and access_type symbols a =
   match a.node with
@@ -273,14 +277,14 @@ and access_type symbols a =
           raise
           @@ Semantic_error
                (a.loc, "Variable " ^ v ^ " not defined in current symbols"))
-  | AccDeref e -> (
-      match expr_type symbols e with
+  | AccDeref expr -> (
+      match expr_type symbols expr with
       | TypP t -> t
       | _ ->
           raise @@ Semantic_error (a.loc, "Trying to dereference a non pointer")
       )
-  | AccIndex (a, e) -> (
-      match expr_type symbols e with
+  | AccIndex (a, expr) -> (
+      match expr_type symbols expr with
       | TypI -> (
           match access_type symbols a with
           | TypA (t, _) -> t
@@ -289,22 +293,18 @@ and access_type symbols a =
           )
       | _ -> raise @@ Semantic_error (a.loc, "Index of array must be an integer")
       )
-  | AccStructField (s, f) -> (
-      (*
-         - Checks that the variable is an existing structure
-         - CHecks that the field exists
-      *)
+  | AccStructField (s, field) -> (
       match access_type symbols s with
       | TypS s -> (
           match Symbol_table.lookup s symbols.struct_symbols with
           | Some (_, s) -> (
-              match List.find_opt (fun (_, i) -> i = f) s.fields with
+              match List.find_opt (fun (_, i) -> i = field) s.fields with
               | Some (t, _) -> t
               | None ->
                   raise
                   @@ Semantic_error
                        ( a.loc,
-                         "Field " ^ f ^ " does not exists in structure "
+                         "Field " ^ field ^ " does not exists in structure "
                          ^ s.sname ))
           | None ->
               raise
@@ -314,26 +314,36 @@ and access_type symbols a =
           @@ Semantic_error
                (a.loc, "Trying to access field of non structure variable"))
 
+(*
+  Checks that a statement is well typed
+  @param symbols  The current symbol table
+  @param ftype    The return type of the function
+  @param statement The statement to be checked
+*)
 let rec stmt_type_check symbols ftype statement =
   match statement.node with
   | If (cond, then_block, else_block) ->
       if expr_type symbols cond <> TypB then
-        raise @@ Semantic_error (statement.loc, "Expected boolean expression in if condition")
+        raise
+        @@ Semantic_error
+             (statement.loc, "Expected boolean expression in if condition")
       else
         let _ = stmt_type_check symbols ftype then_block in
         let _ = stmt_type_check symbols ftype else_block in
         true
   | DoWhile (cond, body) | While (cond, body) ->
       if expr_type symbols cond <> TypB then
-        raise @@ Semantic_error (body.loc, "Expected boolean expression in while condition")
+        raise
+        @@ Semantic_error
+             (body.loc, "Expected boolean expression in while condition")
       else
         let _ = stmt_type_check symbols ftype body in
         true
   | Expr e ->
       expr_type symbols e |> ignore;
       true
-  | Return (Some exp) ->
-      if expr_type symbols exp <> ftype then
+  | Return (Some expr) ->
+      if expr_type symbols expr <> ftype then
         raise
         @@ Semantic_error
              (statement.loc, "Return type does not match function signature")
@@ -344,7 +354,10 @@ let rec stmt_type_check symbols ftype statement =
       else false
   | Block stmts ->
       let new_scope =
-        { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }
+        {
+          symbols with
+          var_symbols = Symbol_table.begin_block symbols.var_symbols;
+        }
       in
       let result =
         List.fold_left
@@ -358,8 +371,14 @@ let rec stmt_type_check symbols ftype statement =
       Symbol_table.end_block new_scope.var_symbols |> ignore;
       result
 
-and stmtordec_type_check symbols ftype s =
-  match s.node with
+(**
+    Checks that statements and declarations are well typed
+    @param symbols  The current symbol table
+    @param ftype    The return type of the function
+    @param sordec        The statement or declaration to be checked
+**)
+and stmtordec_type_check symbols ftype sordec =
+  match sordec.node with
   | DecList l ->
       let check_var loc x =
         match x with
@@ -384,28 +403,37 @@ and stmtordec_type_check symbols ftype s =
                     else raise @@ Semantic_error (loc, "Value of different type")
                 ))
       in
-      List.iter (check_var s.loc) l;
+      List.iter (check_var sordec.loc) l;
       true
   | Stmt s -> stmt_type_check symbols ftype s
 
-let parameter_type_check symbols loc (t, i) =
+(**
+  Checks that a function parameter is well typed.
+  @param symbols  The current symbol table
+  @param location The location of the parameter in the source code.
+  @param typ       The type of the parameter
+  @param id        The name of the parameter
+**)
+let parameter_type_check symbols location (typ, id) =
   (* Function parameters are treated slightly different from normal variables. We only forbid void variables, but unsized arrays are allowed *)
-  match t with
-  | TypV -> raise @@ Semantic_error (loc, "Illegal void parameter " ^ i)
+  match typ with
+  | TypV -> raise @@ Semantic_error (location, "Illegal void parameter " ^ id)
   | _ -> (
-      check_type symbols.struct_symbols loc t;
-      try Symbol_table.add_entry i (loc, t) symbols.var_symbols |> ignore
+      check_type symbols.struct_symbols location typ;
+      try
+        Symbol_table.add_entry id (location, typ) symbols.var_symbols |> ignore
       with DuplicateEntry i ->
         raise
         @@ Semantic_error
-             (loc, "Parameter " ^ i ^ " already defined in current symbols"))
+             (location, "Parameter " ^ i ^ " already defined in current symbols")
+      )
 
-(*
-  - Checks that the function type is allowed
-  - Adds function name to the symbol table, for recursive calls
-  - Checks that paramets are properly defined
-  - Recursively checks the function body
-*)
+(**
+  Checks that a function is well typed.
+  @param func     The function to be checked
+  @param symbols  The current symbol table
+  @param location The location of the function in the source code.
+**)
 let func_type_check func symbols location =
   check_fun_type location func.typ;
   let new_scope =
@@ -413,6 +441,10 @@ let func_type_check func symbols location =
   in
   List.iter (parameter_type_check new_scope location) func.formals;
   match func.body.node with
+  (*
+    The Block case is intercepted to avoid the stmt_type_check function to forget the injection of parameters in
+    the function scope.
+  *)
   | Block statements ->
       List.fold_left
         (fun acc stmtordec ->
@@ -424,11 +456,11 @@ let func_type_check func symbols location =
       |> ignore
   | _ -> stmt_type_check new_scope func.typ func.body |> ignore
 
-let rec global_expr_type symbols location exp =
+let rec global_expr_type symbols location expr =
   (*checks that a global variable is initialized with a constant value *)
-  match exp.node with
+  match expr.node with
   | ILiteral _ | CLiteral _ | BLiteral _ | FLiteral _ | String _ | Null ->
-      expr_type symbols exp
+      expr_type symbols expr
   | UnaryOp (u, e) ->
       let et = global_expr_type symbols location e in
       unaryexp_type location u et
@@ -498,8 +530,7 @@ let check_global_properties symbols =
   | Some (_, { typ = TypI; fname = "main"; formals = []; body = _ }) -> ()
   | Some (loc, _) -> raise @@ Semantic_error (loc, "Invalid signature of main")
   | None ->
-      raise
-      @@ Semantic_error (Location.dummy_code_pos, "main function missing")
+      raise @@ Semantic_error (Location.dummy_code_pos, "main function missing")
 
 let rt_support =
   (*adds library functions info *)
@@ -509,14 +540,14 @@ let rt_support =
     Rt_support.rt_functions;
   init_scope
 
-let add_function symbols node =
-  match node.node with
+let add_function symbols topdecl =
+  match topdecl.node with
   | Fundecl f ->
       let new_scope =
-        try Symbol_table.add_entry f.fname (node.loc, f) symbols.fun_symbols
+        try Symbol_table.add_entry f.fname (topdecl.loc, f) symbols.fun_symbols
         with DuplicateEntry d ->
           raise
-          @@ Semantic_error (node.loc, "function " ^ d ^ " already defined")
+          @@ Semantic_error (topdecl.loc, "function " ^ d ^ " already defined")
       in
       { symbols with fun_symbols = new_scope }
   | _ -> symbols
