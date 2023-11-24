@@ -5,7 +5,7 @@ exception Syntax_error of Location.lexeme_pos * string
 
 let raise_syntax_error lexbuf msg =
   let pos = Location.to_lexeme_position lexbuf in
-  raise (Syntax_error (pos, msg))
+  raise @@ Syntax_error (pos, msg)
 
 let fail lexbuf _ =
   raise_syntax_error lexbuf @@ "syntax error at lexeme \""

@@ -20,7 +20,7 @@ type binop =
   | RShift
 [@@deriving show]
 
-type uop = Neg | Not | PreInc | PreDec | PostInc | PostDec | BNot
+type uop = Neg | Not |  BNot | PreIncr | PreDecr | PostIncr | PostDecr 
 [@@deriving show]
 
 type identifier = string [@@deriving show]
@@ -71,7 +71,7 @@ and access_node =
   | AccVar of identifier (* Variable access        x    *)
   | AccDeref of expr (* Pointer dereferencing  *p   *)
   | AccIndex of access * expr (* Array indexing         a[e] *)
-  | AccField of access * identifier
+  | AccStructField of access * identifier
 [@@deriving show]
 
 and stmt = stmt_node annotated_node

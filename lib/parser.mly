@@ -163,7 +163,7 @@ lexpr:
 | TIMES ADDRESS l=lexpr {node (AccDeref(node (Addr(l)) $loc)) $loc}
 | TIMES l = lexpr {node (AccDeref(node (Access(l)) $loc)) $loc}
 | l=lexpr LBRACKET e = expr RBRACKET { node (AccIndex(l,e)) $loc}
-| l = lexpr DOT f=ID {node (AccField(l,f)) $loc}
+| l = lexpr DOT f=ID {node (AccStructField(l,f)) $loc}
 ;
 
 rexpr:
@@ -175,10 +175,10 @@ rexpr:
 | u=unaryOp e=expr {node (UnaryOp(u, e)) $loc}
 | e=expr b=binOp e2=expr  {node (BinaryOp(b,e,e2)) $loc}
 | l=lexpr s=shortOp e = expr {node (ShortAssign(l,s, e )) $loc}
-| INCREMENT l = lexpr {node (UnaryOp(PreInc,node (Access(l)) $loc )) $loc}
-| DECREMENT l = lexpr {node (UnaryOp(PreDec,node (Access(l)) $loc )) $loc}
-| l  = lexpr INCREMENT {node (UnaryOp(PostInc,node (Access(l)) $loc )) $loc}
-| l  = lexpr DECREMENT {node (UnaryOp(PostDec,node (Access(l)) $loc )) $loc}
+| INCREMENT l = lexpr {node (UnaryOp(PreIncr,node (Access(l)) $loc )) $loc}
+| DECREMENT l = lexpr {node (UnaryOp(PreDecr,node (Access(l)) $loc )) $loc}
+| l  = lexpr INCREMENT {node (UnaryOp(PostIncr,node (Access(l)) $loc )) $loc}
+| l  = lexpr DECREMENT {node (UnaryOp(PostDecr,node (Access(l)) $loc )) $loc}
 ;
 
 (*binop is inline in order to not have shift reduce conflicts*)

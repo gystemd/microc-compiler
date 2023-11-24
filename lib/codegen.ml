@@ -21,14 +21,14 @@ type symbols = {
   struct_symbols : (L.lltype * string list) Symbol_table.t;
 }
 
-let rec build_llvm_type structs = function
+let rec llvmtype_of structs = function
   | TypI -> int_type
   | TypF -> float_type
   | TypC -> char_type
   | TypB -> bool_type
-  | TypA (t, Some v) -> L.array_type (build_llvm_type structs t) v
+  | TypA (t, Some v) -> L.array_type (llvmtype_of structs t) v
   | TypA (t, None) | TypP t ->
-      L.pointer_type (build_llvm_type structs t)
+      L.pointer_type (llvmtype_of structs t)
       (*Unsized arrays are directly converted to pointers *)
   | TypV -> void_type
   | TypNull -> L.pointer_type void_type
@@ -41,14 +41,14 @@ let rec build_llvm_type structs = function
   For binary and unary  operators, we check that the operands are of the correct type and return the correct instruction builder.
   We exploit partial functions to return a new function that takes the generate subexpressions and build the final one.
 *)
-let unop = function
+let unary_operator = function
   | t, Neg when t = int_type -> L.build_neg
   | t, Neg when t = float_type -> L.build_fneg
   | t, Not when t = bool_type -> L.build_not
   | t, BNot when t = int_type -> L.build_not
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 
-let bin_op = function
+let binary_operator = function
   | t1, t2, Add when t1 = int_type && t2 = int_type -> L.build_add
   | t1, t2, Sub when t1 = int_type && t2 = int_type -> L.build_sub
   | t1, t2, Div when t1 = int_type && t2 = int_type -> L.build_sdiv
@@ -151,10 +151,10 @@ let const_bin_op = function
 *)
 let build_unary_incr_or_decr builder op value =
   let inc_op = function
-    | (PreInc | PostInc), t when t = int_type -> L.build_add llvm_one
-    | (PreInc | PostInc), t when t = float_type -> L.build_fadd llvm_one
-    | (PreDec | PostDec), t when t = int_type -> Fun.flip L.build_sub llvm_one
-    | (PreDec | PostDec), t when t = float_type ->
+    | (PreIncr | PostIncr), t when t = int_type -> L.build_add llvm_one
+    | (PreIncr | PostIncr), t when t = float_type -> L.build_fadd llvm_one
+    | (PreDecr | PostDecr), t when t = int_type -> Fun.flip L.build_sub llvm_one
+    | (PreDecr | PostDecr), t when t = float_type ->
         Fun.flip L.build_fsub llvm_onef
         (*Flip needed so a-- becomes a - 1 and not 1 - a *)
     | _ -> raise @@ Codegen_error ("Invalid type for operator " ^ show_uop op)
@@ -163,14 +163,14 @@ let build_unary_incr_or_decr builder op value =
   let before = L.build_load value "" builder in
   let after = apply_op before "" builder in
   L.build_store after value builder |> ignore;
-  if op = PreInc || op = PreDec then after else before
+  if op = PreIncr || op = PreDecr then after else before
 
 let normalize_expr e t =
   if L.is_undef e then L.const_pointer_null t
   else e (*helper function to handle situations where null appears *)
 
-let rec codegen_expr scope builder e =
-  match e.node with
+let rec codegen_expr scope builder exp =
+  match exp.node with
   | ILiteral i -> L.const_int int_type i
   | FLiteral f -> L.const_float float_type f
   | CLiteral c -> L.const_int char_type (Char.code c)
@@ -195,11 +195,11 @@ let rec codegen_expr scope builder e =
       let a_val = L.build_load acc "" builder in
       let e_val = codegen_expr scope builder e in
       let value =
-        bin_op (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder
+        binary_operator (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder
       in
       L.build_store value acc builder |> ignore;
       value
-  | UnaryOp (((PreInc | PostInc | PreDec | PostDec) as op), e) ->
+  | UnaryOp (((PreIncr | PostIncr | PreDecr | PostDecr) as op), e) ->
       let access_e =
         match e.node with
         | Access a ->
@@ -213,7 +213,7 @@ let rec codegen_expr scope builder e =
   | UnaryOp (u, e) ->
       let e_val = codegen_expr scope builder e in
       (*gets the correct binary expression and builds the actual instruction *)
-      unop (L.type_of e_val, u) e_val "" builder
+      unary_operator (L.type_of e_val, u) e_val "" builder
   | BinaryOp (b, e1, e2) ->
       let e1_val, e2_val =
         let v1, v2 =
@@ -229,7 +229,7 @@ let rec codegen_expr scope builder e =
         | e1v, e2v -> (e1v, e2v)
       in
       (*gets the correct binary expression and builds the actual instruction *)
-      bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
+      binary_operator (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
   | SizeOf e ->
       let t = codegen_expr scope builder e |> L.type_of in
       let size =
@@ -303,7 +303,7 @@ and codegen_access scope builder a =
               let load_val = Llvm.build_load a_val "" builder in
               Llvm.build_in_bounds_gep load_val [| ind |] "" builder)
       | _ -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder)
-  | AccField (a, f) -> (
+  | AccStructField (a, f) -> (
       let a_val = codegen_access scope builder a in
       let sname = L.type_of a_val |> L.element_type |> L.struct_name in
 
@@ -362,10 +362,6 @@ let rec codegen_stmt fdef scope builder stmt =
       let new_scope =
         { scope with var_symbols = Symbol_table.begin_block scope.var_symbols }
       in
-      (*
-      As soon as codegen_stmt returns false, stops generating instructions.
-      Needed to handle instructions after an always reached return statement
-      *)
       List.iter (codegen_stmtordec fdef new_scope builder) b
   | Return e ->
       if Option.is_none e then L.build_ret_void |> add_terminator builder
@@ -384,7 +380,7 @@ and codegen_stmtordec fdef scope builder st =
   | DecList l ->
       let var_gen scope builder (t, i, init) =
         let var_v =
-          L.build_alloca (build_llvm_type scope.struct_symbols t) i builder
+          L.build_alloca (llvmtype_of scope.struct_symbols t) i builder
         in
         let get_init_val e =
           let e_val = codegen_expr scope builder e in
@@ -394,7 +390,7 @@ and codegen_stmtordec fdef scope builder st =
           then e_val
           else
             let value =
-              normalize_expr e_val (build_llvm_type scope.struct_symbols t)
+              normalize_expr e_val (llvmtype_of scope.struct_symbols t)
             in
 
             L.build_store value var_v builder |> ignore;
@@ -417,14 +413,14 @@ let codegen_func scope func =
     { scope with var_symbols = Symbol_table.begin_block scope.var_symbols }
   in
   let f = Symbol_table.lookup func.fname scope.fun_symbols |> Option.get in
-  let ret_type = build_llvm_type scope.struct_symbols func.typ in
+  let ret_type = llvmtype_of scope.struct_symbols func.typ in
   let f_builder = L.entry_block f |> L.builder_at_end llcontext in
   let build_param scope builder (t, i) p =
     let tp =
       match t with
       | TypA (t1, _) ->
-          build_llvm_type scope.struct_symbols t1 |> L.pointer_type
-      | _ -> build_llvm_type scope.struct_symbols t
+          llvmtype_of scope.struct_symbols t1 |> L.pointer_type
+      | _ -> llvmtype_of scope.struct_symbols t
     in
     let l = L.build_alloca tp "" builder in
     (*store function parameters *)
@@ -449,7 +445,7 @@ let rec codegen_global_expr structs t e =
   | CLiteral c -> Char.code c |> L.const_int char_type
   | BLiteral b -> if b then llvm_true else llvm_false
   | String s -> L.const_stringz llcontext s
-  | Null -> build_llvm_type structs t |> L.const_pointer_null
+  | Null -> llvmtype_of structs t |> L.const_pointer_null
   | UnaryOp (uop, e1) ->
       let a = codegen_global_expr structs t e1 in
       let t1 = L.type_of a in
@@ -464,7 +460,7 @@ let rec codegen_global_expr structs t e =
 let codegen_global_variable llmodule scope (t, i) init =
   let var_init =
     Option.fold
-      ~none:(L.undef (build_llvm_type scope.struct_symbols t))
+      ~none:(L.undef (llvmtype_of scope.struct_symbols t))
         (*undefined default initial value *)
       ~some:(codegen_global_expr scope.struct_symbols t)
       init
@@ -488,7 +484,7 @@ let codegen_topdecl llmodule scope n =
       |> ignore;
       let fields_t =
         s.fields
-        |> List.map (fun (t, _) -> build_llvm_type scope.struct_symbols t)
+        |> List.map (fun (t, _) -> llvmtype_of scope.struct_symbols t)
       in
       L.struct_set_body named_s (Array.of_list fields_t) false
 
@@ -496,12 +492,12 @@ let add_rt_support llmodule scope =
   (*declares function prototypes *)
   let params_to_array params =
     params |> List.map fst
-    |> List.map (build_llvm_type scope.struct_symbols)
+    |> List.map (llvmtype_of scope.struct_symbols)
     |> Array.of_list
   in
   let fun_type f =
     L.function_type
-      (build_llvm_type scope.struct_symbols f.typ)
+      (llvmtype_of scope.struct_symbols f.typ)
       (params_to_array f.formals)
   in
   Rt_support.rt_functions
@@ -515,15 +511,15 @@ let add_rt_support llmodule scope =
 let add_function llmodule scope node =
   match node.node with
   | Fundecl func ->
-      let ret_type = build_llvm_type scope.struct_symbols func.typ in
+      let ret_type = llvmtype_of scope.struct_symbols func.typ in
       let formals_types =
         func.formals |> List.map fst
         |> List.map (fun t ->
                match t with
                | TypA (t1, _) ->
                    (*all arrays become pointers *)
-                   build_llvm_type scope.struct_symbols t1 |> L.pointer_type
-               | _ -> build_llvm_type scope.struct_symbols t)
+                   llvmtype_of scope.struct_symbols t1 |> L.pointer_type
+               | _ -> llvmtype_of scope.struct_symbols t)
       in
       let f_type = L.function_type ret_type (Array.of_list formals_types) in
       let f = L.define_function func.fname f_type llmodule in

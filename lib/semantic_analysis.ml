@@ -18,8 +18,8 @@ let rec string_of_type = function
 let string_of_uop = function
   | Neg -> "-"
   | Not -> "!"
-  | PreInc | PostInc -> "++"
-  | PreDec | PostDec -> "--"
+  | PreIncr | PostIncr -> "++"
+  | PreDecr | PostDecr -> "--"
   | BNot -> "~"
 
 let string_of_binop = function
@@ -93,25 +93,25 @@ let rec defined_type_size t =
 let rec check_type structs loc t =
   match t with
   | TypA (TypV, _) ->
-      raise @@ Semantic_error (loc, "Trying to define a void array")
+      raise @@ Semantic_error (loc, "Cannot declare a void array")
   | TypA (_, Some i) when i < 1 ->
-      raise @@ Semantic_error (loc, "Array must have size > 0")
+      raise @@ Semantic_error (loc, "Array size must be greater than zero")
   | TypA (t, _) when not (defined_type_size t) ->
-      raise @@ Semantic_error (loc, "Array size undefined")
-  | TypP TypV -> raise @@ Semantic_error (loc, "Trying to define a void pointer")
+      raise @@ Semantic_error (loc, "Cannot declare undefined-size array")
+  | TypP TypV -> raise @@ Semantic_error (loc, "Cannot declare a void pointer")
   | TypP t -> check_type structs loc t
   | TypS s -> (
       match Symbol_table.lookup s structs with
       | Some _ -> ()
-      | None -> raise @@ Semantic_error (loc, "Undefined structure " ^ s))
+      | None -> raise @@ Semantic_error (loc, "Undefined struct " ^ s))
   | _ -> ()
 
 let check_var_type structs loc t =
   match t with
-  | TypV -> raise @@ Semantic_error (loc, "Trying to define a void variable")
+  | TypV -> raise @@ Semantic_error (loc, "Cannot declare a void variable")
   | TypA (_, None) ->
       raise
-      @@ Semantic_error (loc, "Array must be declared with an initial size")
+      @@ Semantic_error (loc, "Size missing for array declaration")
   | _ -> check_type structs loc t
 
 let check_var_decl scope loc (t, i) =
@@ -122,10 +122,11 @@ let check_var_decl scope loc (t, i) =
     @@ Semantic_error
          (loc, "Variable " ^ i ^ " already defined in current scope")
 
-let check_fun_type loc t =
-  match t with
+let check_fun_type location typ =
+  match typ with
   | TypA (_, _) | TypP _ | TypNull ->
-      raise @@ Semantic_error (loc, "Illegal function type " ^ string_of_type t)
+      raise
+      @@ Semantic_error (location, "Illegal function type " ^ string_of_type typ)
   | _ -> ()
 
 (*
@@ -133,16 +134,17 @@ let check_fun_type loc t =
 - Allows NULL to be assigned to pointers with different element type
 
 *)
-let rec match_types loc t1 t2 =
+let rec match_types location t1 t2 =
   match (t1, t2) with
-  | TypA (t1, Some v), TypA (t2, Some v2) when v = v2 -> match_types loc t1 t2
+  | TypA (t1, Some v), TypA (t2, Some v2) when v = v2 ->
+      match_types location t1 t2
   | TypA (_, Some v), TypA (_, Some v2) when v <> v2 ->
-      raise @@ Semantic_error (loc, "Array size must be the same")
+      raise @@ Semantic_error (location, "Array size must be the same")
   | TypA (t1, None), TypA (t2, _) | TypA (t1, _), TypA (t2, None) ->
-      match_types loc t1 t2
+      match_types location t1 t2
   | TypP _, TypNull -> true
   | TypNull, TypP _ -> true
-  | TypP t1, TypP t2 -> match_types loc t1 t2
+  | TypP t1, TypP t2 -> match_types location t1 t2
   | t1, t2 -> t1 = t2
 
 let binaryexp_type loc op et1 et2 =
@@ -175,8 +177,8 @@ let unaryexp_type loc u et =
   | Neg, TypF -> TypF
   | Not, TypB -> TypB
   | BNot, TypI -> TypI
-  | (PreInc | PreDec | PostInc | PostDec), (TypI | TypF) -> et
-  | (PreInc | PreDec | PostInc | PostDec), _ | Neg, _ | Not, _ | BNot, _ ->
+  | (PreIncr | PreDecr | PostIncr | PostDecr), (TypI | TypF) -> et
+  | (PreIncr | PreDecr | PostIncr | PostDecr), _ | Neg, _ | Not, _ | BNot, _ ->
       raise
       @@ Semantic_error
            ( loc,
@@ -287,7 +289,7 @@ and access_type scope a =
           )
       | _ -> raise @@ Semantic_error (a.loc, "Index of array must be an integer")
       )
-  | AccField (s, f) -> (
+  | AccStructField (s, f) -> (
       (*
          - Checks that the variable is an existing structure
          - CHecks that the field exists
@@ -312,33 +314,33 @@ and access_type scope a =
           @@ Semantic_error
                (a.loc, "Trying to access field of non structure variable"))
 
-let rec check_stmt scope ftype s =
-  match s.node with
-  | If (e, s1, s2) ->
-      if expr_type scope e <> TypB then
-        raise @@ Semantic_error (s.loc, "If condition is not boolean")
+let rec stmt_type_check scope ftype statement =
+  match statement.node with
+  | If (cond, then_block, else_block) ->
+      if expr_type scope cond <> TypB then
+        raise @@ Semantic_error (statement.loc, "Expected boolean expression in if condition")
       else
-        let _ = check_stmt scope ftype s1 in
-        let _ = check_stmt scope ftype s2 in
+        let _ = stmt_type_check scope ftype then_block in
+        let _ = stmt_type_check scope ftype else_block in
         true
-  | DoWhile (e, s) | While (e, s) ->
-      if expr_type scope e <> TypB then
-        raise @@ Semantic_error (s.loc, " Loop condition is not boolean")
+  | DoWhile (cond, body) | While (cond, body) ->
+      if expr_type scope cond <> TypB then
+        raise @@ Semantic_error (body.loc, "Expected boolean expression in while condition")
       else
-        let _ = check_stmt scope ftype s in
+        let _ = stmt_type_check scope ftype body in
         true
   | Expr e ->
       expr_type scope e |> ignore;
       true
-  | Return (Some e) ->
-      if expr_type scope e <> ftype then
+  | Return (Some exp) ->
+      if expr_type scope exp <> ftype then
         raise
         @@ Semantic_error
-             (s.loc, "Return type does not match function signature")
+             (statement.loc, "Return type does not match function signature")
       else false
   | Return None ->
       if ftype <> TypV then
-        raise @@ Semantic_error (s.loc, "missing return value")
+        raise @@ Semantic_error (statement.loc, "missing return value")
       else false
   | Block stmts ->
       let new_scope =
@@ -350,13 +352,13 @@ let rec check_stmt scope ftype s =
             if not acc then
               raise
               @@ Semantic_error (stmtordec.loc, "instruction after return found")
-            else acc && check_stmtordec new_scope ftype stmtordec)
+            else acc && stmtordec_type_check new_scope ftype stmtordec)
           true stmts
       in
       Symbol_table.end_block new_scope.var_symbols |> ignore;
       result
 
-and check_stmtordec scope ftype s =
+and stmtordec_type_check scope ftype s =
   match s.node with
   | DecList l ->
       let check_var loc x =
@@ -384,9 +386,9 @@ and check_stmtordec scope ftype s =
       in
       List.iter (check_var s.loc) l;
       true
-  | Stmt s -> check_stmt scope ftype s
+  | Stmt s -> stmt_type_check scope ftype s
 
-let check_parameter scope loc (t, i) =
+let parameter_type_check scope loc (t, i) =
   (* Function parameters are treated slightly different from normal variables. We only forbid void variables, but unsized arrays are allowed *)
   match t with
   | TypV -> raise @@ Semantic_error (loc, "Illegal void parameter " ^ i)
@@ -404,23 +406,23 @@ let check_parameter scope loc (t, i) =
   - Checks that paramets are properly defined
   - Recursively checks the function body
 *)
-let check_func f scope loc =
-  check_fun_type loc f.typ;
+let func_type_check func scope location =
+  check_fun_type location func.typ;
   let new_scope =
     { scope with var_symbols = Symbol_table.begin_block scope.var_symbols }
   in
-  List.iter (check_parameter new_scope loc) f.formals;
-  match f.body.node with
-  | Block stmts ->
+  List.iter (parameter_type_check new_scope location) func.formals;
+  match func.body.node with
+  | Block statements ->
       List.fold_left
         (fun acc stmtordec ->
           if not acc then
             raise
             @@ Semantic_error (stmtordec.loc, "instruction after return found")
-          else acc && check_stmtordec new_scope f.typ stmtordec)
-        true stmts
+          else acc && stmtordec_type_check new_scope func.typ stmtordec)
+        true statements
       |> ignore
-  | _ -> check_stmt new_scope f.typ f.body |> ignore
+  | _ -> stmt_type_check new_scope func.typ func.body |> ignore
 
 let rec global_expr_type scope loc e =
   (*checks that a global variable is initialized with a constant value *)
@@ -441,9 +443,9 @@ let rec global_expr_type scope loc e =
              "Cannot assign non-constant value at compile time to a global \
               variable" )
 
-let check_topdecl scope node =
+let topdecl_type_check scope node =
   match node.node with
-  | Fundecl f -> check_func f scope node.loc
+  | Fundecl f -> func_type_check f scope node.loc
   | VarDecList l ->
       let check_var loc x =
         match x with
@@ -497,7 +499,7 @@ let check_global_properties scope =
   | Some (loc, _) -> raise @@ Semantic_error (loc, "Invalid signature of main")
   | None ->
       raise
-      @@ Semantic_error (Location.dummy_code_pos, " No main function defined")
+      @@ Semantic_error (Location.dummy_code_pos, "main function missing")
 
 let rt_support =
   (*adds library functions info *)
@@ -528,6 +530,6 @@ let type_check (Prog topdecls) =
     }
   in
   let function_scope = List.fold_left add_function toplevel_scope topdecls in
-  List.iter (check_topdecl function_scope) topdecls;
+  List.iter (topdecl_type_check function_scope) topdecls;
   check_global_properties toplevel_scope |> ignore;
   Prog topdecls
