@@ -35,7 +35,7 @@ let rec build_llvm_type structs = function
   | TypS n -> (
       match Symbol_table.lookup n structs with
       | Some (t, _) -> t
-      | None -> raise @@ Codegen_error ("Undefined structure " ^ n))
+      | None -> raise @@ Codegen_error ("structure " ^ n ^ " not defined"))
 
 (*
   For binary and unary  operators, we check that the operands are of the correct type and return the correct instruction builder.
@@ -54,6 +54,11 @@ let bin_op = function
   | t1, t2, Div when t1 = int_type && t2 = int_type -> L.build_sdiv
   | t1, t2, Mult when t1 = int_type && t2 = int_type -> L.build_mul
   | t1, t2, Mod when t1 = int_type && t2 = int_type -> L.build_srem
+  | t1, t2, BAnd when t1 = int_type && t2 = int_type -> L.build_and
+  | t1, t2, BOr when t1 = int_type && t2 = int_type -> L.build_or
+  | t1, t2, BXor when t1 = int_type && t2 = int_type -> L.build_xor
+  | t1, t2, LShift when t1 = int_type && t2 = int_type -> L.build_shl
+  | t1, t2, RShift when t1 = int_type && t2 = int_type -> L.build_lshr
   | t1, t2, Less when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Slt
   | t1, t2, Leq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sle
   | t1, t2, Greater when t1 = int_type && t2 = int_type ->
@@ -61,15 +66,10 @@ let bin_op = function
   | t1, t2, Geq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sge
   | t1, t2, Equal when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Eq
   | t1, t2, Neq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Ne
-  | t1, t2, BAnd when t1 = int_type && t2 = int_type -> L.build_and
-  | t1, t2, BOr when t1 = int_type && t2 = int_type -> L.build_or
-  | t1, t2, BXor when t1 = int_type && t2 = int_type -> L.build_xor
-  | t1, t2, LShift when t1 = int_type && t2 = int_type -> L.build_shl
-  | t1, t2, RShift when t1 = int_type && t2 = int_type -> L.build_lshr
   | t1, t2, Add when t1 = float_type && t2 = float_type -> L.build_fadd
   | t1, t2, Sub when t1 = float_type && t2 = float_type -> L.build_fsub
-  | t1, t2, Div when t1 = float_type && t2 = float_type -> L.build_fdiv
   | t1, t2, Mult when t1 = float_type && t2 = float_type -> L.build_fmul
+  | t1, t2, Div when t1 = float_type && t2 = float_type -> L.build_fdiv
   | t1, t2, Less when t1 = float_type && t2 = float_type ->
       L.build_fcmp L.Fcmp.Olt
   | t1, t2, Leq when t1 = float_type && t2 = float_type ->
@@ -110,8 +110,8 @@ let const_op = function
 let const_bin_op = function
   | t1, t2, Add when t1 = int_type && t2 = int_type -> L.const_add
   | t1, t2, Sub when t1 = int_type && t2 = int_type -> L.const_sub
-  | t1, t2, Div when t1 = int_type && t2 = int_type -> L.const_sdiv
   | t1, t2, Mult when t1 = int_type && t2 = int_type -> L.const_mul
+  | t1, t2, Div when t1 = int_type && t2 = int_type -> L.const_sdiv
   | t1, t2, Mod when t1 = int_type && t2 = int_type -> L.const_srem
   | t1, t2, Less when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Slt
   | t1, t2, Leq when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Sle
@@ -171,13 +171,12 @@ let normalize_expr e t =
 
 let rec codegen_expr symbols builder expr =
   match expr.node with
+  | Null -> L.undef (int_type |> L.pointer_type)
   | ILiteral i -> L.const_int int_type i
   | FLiteral f -> L.const_float float_type f
-  | CLiteral c -> L.const_int char_type (Char.code c)
   | BLiteral b -> if b then llvm_true else llvm_false
+  | CLiteral c -> L.const_int char_type (Char.code c)
   | String s -> L.build_global_string (s ^ "\000") "" builder
-  | Null -> L.undef (int_type |> L.pointer_type)
-  | Addr a -> codegen_access symbols builder a
   | Access a ->
       (*access always returns an address so we load the value *)
       let a_val = codegen_access symbols builder a in
@@ -190,6 +189,7 @@ let rec codegen_expr symbols builder expr =
       in
       L.build_store expr_act_val acc_var builder |> ignore;
       expr_act_val
+  | Addr a -> codegen_access symbols builder a
   | ShortAssign (a, op, e) ->
       let acc = codegen_access symbols builder a in
       let a_val = L.build_load acc "" builder in
@@ -199,6 +199,14 @@ let rec codegen_expr symbols builder expr =
       in
       L.build_store value acc builder |> ignore;
       value
+  | SizeOf expr ->
+      let t = codegen_expr symbols builder expr |> L.type_of in
+      let size =
+        match L.classify_type t with
+        | L.TypeKind.Pointer -> L.size_of (L.element_type t)
+        | _ -> L.size_of t
+      in
+      L.build_trunc size int_type "" builder
   | UnaryOp (((PreIncr | PostIncr | PreDecr | PostDecr) as op), e) ->
       let access_e =
         match e.node with
@@ -230,14 +238,6 @@ let rec codegen_expr symbols builder expr =
       in
       (*gets the correct binary expression and builds the actual instruction *)
       bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
-  | SizeOf expr ->
-      let t = codegen_expr symbols builder expr |> L.type_of in
-      let size =
-        match L.classify_type t with
-        | L.TypeKind.Pointer -> L.size_of (L.element_type t)
-        | _ -> L.size_of t
-      in
-      L.build_trunc size int_type "" builder
   | Call (func, params) ->
       let actual_f =
         match Symbol_table.lookup func symbols.fun_symbols with
@@ -342,13 +342,13 @@ let rec codegen_stmt fdef symbols builder stmt =
   in
 
   match stmt.node with
-  | If (expr, then_block, else_block) ->
+  | If (cond, then_block, else_block) ->
       let blockt = L.append_block llcontext "then" fdef in
       let blockelse = L.append_block llcontext "else" fdef in
       let blockcont = L.append_block llcontext "cont" fdef in
       let then_builder = L.builder_at_end llcontext blockt in
       let else_builder = L.builder_at_end llcontext blockelse in
-      let e1 = codegen_expr symbols builder expr in
+      let e1 = codegen_expr symbols builder cond in
       L.build_cond_br e1 blockt blockelse builder |> ignore;
 
       codegen_stmt fdef symbols then_builder then_block |> ignore;
@@ -360,7 +360,10 @@ let rec codegen_stmt fdef symbols builder stmt =
   | Expr e -> codegen_expr symbols builder e |> ignore
   | Block b ->
       let new_scope =
-        { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }
+        {
+          symbols with
+          var_symbols = Symbol_table.begin_block symbols.var_symbols;
+        }
       in
       List.iter (codegen_stmtordec fdef new_scope builder) b
   | Return e ->
@@ -438,8 +441,8 @@ let codegen_func symbols func =
   | _ -> add_terminator f_builder (ret_type |> L.undef |> L.build_ret)
 (*when no return is present, the function returns an undefined value *)
 
-let rec codegen_global_expr structs t e =
-  match e.node with
+let rec codegen_global_expr structs t expr =
+  match expr.node with
   | ILiteral i -> L.const_int int_type i
   | FLiteral f -> L.const_float float_type f
   | CLiteral c -> Char.code c |> L.const_int char_type
@@ -477,11 +480,9 @@ let codegen_topdecl llmodule symbols n =
       in
       List.iter (var_gen llmodule symbols) l
   | Structdecl s ->
-      let named_s = L.named_struct_type llcontext s.sname in
-      Symbol_table.add_entry s.sname
-        (named_s, s.fields |> List.map snd)
-        symbols.struct_symbols
-      |> ignore;
+      let named_s =
+        Symbol_table.lookup s.sname symbols.struct_symbols |> Option.get |> fst
+      in
       let fields_t =
         s.fields
         |> List.map (fun (t, _) -> build_llvm_type symbols.struct_symbols t)
@@ -529,6 +530,19 @@ let add_function_sig llmodule symbols node =
       }
   | _ -> symbols
 
+let add_struct_sig llcontext symbols node =
+  match node.node with
+  | Structdecl s ->
+      let named_s = L.named_struct_type llcontext s.sname in
+      {
+        symbols with
+        struct_symbols =
+          Symbol_table.add_entry s.sname
+            (named_s, s.fields |> List.map snd)
+            symbols.struct_symbols;
+      }
+  | _ -> symbols
+
 let to_llvm_module (Prog topdecls) =
   let module_name = "microc_module" in
   let llmodule = L.create_module llcontext module_name in
@@ -539,8 +553,13 @@ let to_llvm_module (Prog topdecls) =
       struct_symbols = Symbol_table.empty_table ();
     }
   in
+  (* Preventively add all the struct and function signatures
+     to allow independent-declarations *)
+  let struct_scope =
+    List.fold_left (add_struct_sig llcontext) init_scope topdecls
+  in
   let function_scope =
-    List.fold_left (add_function_sig llmodule) init_scope topdecls
+    List.fold_left (add_function_sig llmodule) struct_scope topdecls
   in
   add_rt_support llmodule function_scope;
   List.iter (codegen_topdecl llmodule function_scope) topdecls;

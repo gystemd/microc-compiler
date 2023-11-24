@@ -8,39 +8,38 @@ type context = {
   var_symbols : (Location.code_pos * typ) Symbol_table.t;
   struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t;
 }
-(*
-   Function that allows strings to be used as variable initializer
 
-   - If the array is declared with no initial size, the assigned size will be equal to string_length + 1(for null)
-   - Otherwise we only assign the string if the array has bigger size.
-
-   This function  could be modified to handle general array literals
-*)
-
-let string_var_initialization location vars array_length id string =
+let init_string location var_symbols arr_length id string =
   try
     let length = string |> String.length in
-    if array_length = 0 then
-      Symbol_table.add_entry id (location, TypA (TypC, Some (length + 1))) vars
+    if arr_length = 0 then
+      Symbol_table.add_entry id
+        (location, TypA (TypC, Some (length + 1)))
+        var_symbols
       |> ignore
-    else if length + 1 > array_length then
+    else if length + 1 > arr_length then
       raise
       @@ Semantic_error
            ( location,
              "Null terminated string length is "
              ^ (length + 1 |> string_of_int)
              ^ " but array was declared with size "
-             ^ (array_length |> string_of_int) )
+             ^ (arr_length |> string_of_int) )
     else
-      Symbol_table.add_entry id (location, TypA (TypC, Some array_length)) vars
+      Symbol_table.add_entry id
+        (location, TypA (TypC, Some arr_length))
+        var_symbols
       |> ignore
   with DuplicateEntry id ->
     raise @@ Semantic_error (location, "error: redefinition of " ^ id)
 
-let rec defined_type_size typ =
-  (*checks if the given type is complete *)
+(** Checks if a type has a completely defined size
+    @param typ The type to be checked
+    @return true if the type is complete, false otherwise
+  *)
+let rec is_complete_type typ =
   match typ with
-  | TypA (t, Some _) -> defined_type_size t
+  | TypA (t, Some _) -> is_complete_type t
   | TypA (_, None) -> false
   | _ -> true
 
@@ -52,7 +51,7 @@ let rec check_type structs location t =
       raise
       @@ Semantic_error
            (location, "Cannot declare an array with size less than one")
-  | TypA (t, _) when not (defined_type_size t) ->
+  | TypA (t, _) when not (is_complete_type t) ->
       raise @@ Semantic_error (location, "Cannot declare undefined-size array")
   | TypP TypV ->
       raise @@ Semantic_error (location, "Cannot declare a void pointer")
@@ -346,9 +345,9 @@ and stmtordec_type_check symbols ftype sordec =
         | t, id, Some e -> (
             match (t, e.node) with
             | TypA (TypC, None), String str ->
-                string_var_initialization loc symbols.var_symbols 0 id str
+                init_string loc symbols.var_symbols 0 id str
             | TypA (TypC, Some v), String str ->
-                string_var_initialization loc symbols.var_symbols v id str
+                init_string loc symbols.var_symbols v id str
             | _ -> (
                 check_var_decl symbols loc (t, id);
                 let et = expr_type symbols e in
@@ -452,9 +451,9 @@ let topdecl_type_check symbols node =
         | t, i, Some expr -> (
             match (t, expr.node) with
             | TypA (TypC, None), String str ->
-                string_var_initialization loc symbols.var_symbols 0 i str
+                init_string loc symbols.var_symbols 0 i str
             | TypA (TypC, Some v), String str ->
-                string_var_initialization loc symbols.var_symbols v i str
+                init_string loc symbols.var_symbols v i str
             | _ ->
                 check_var_decl symbols loc (t, i);
                 let et = global_expr_type symbols loc expr in
@@ -466,8 +465,6 @@ let topdecl_type_check symbols node =
   | Structdecl s -> (
       try
         (*immediately adds its own name to defined structs *)
-        Symbol_table.add_entry s.sname (node.loc, s) symbols.struct_symbols
-        |> ignore;
         let struct_scope =
           {
             symbols with
@@ -523,6 +520,19 @@ let add_fun_sign symbols topdecl =
       { symbols with fun_symbols = new_scope }
   | _ -> symbols
 
+let add_struct_sign symbols topdecl =
+  match topdecl.node with
+  | Structdecl s ->
+      let new_scope =
+        try
+          Symbol_table.add_entry s.sname (topdecl.loc, s) symbols.struct_symbols
+        with DuplicateEntry d ->
+          raise
+          @@ Semantic_error (topdecl.loc, "structure " ^ d ^ " already defined")
+      in
+      { symbols with struct_symbols = new_scope }
+  | _ -> symbols
+
 let type_check (Prog topdecls) =
   let toplevel_scope =
     {
@@ -531,7 +541,8 @@ let type_check (Prog topdecls) =
       struct_symbols = Symbol_table.empty_table ();
     }
   in
-  let function_scope = List.fold_left add_fun_sign toplevel_scope topdecls in
+  let struct_scope = List.fold_left add_struct_sign toplevel_scope topdecls in
+  let function_scope = List.fold_left add_fun_sign struct_scope topdecls in
   List.iter (topdecl_type_check function_scope) topdecls;
   check_global_properties toplevel_scope |> ignore;
   Prog topdecls
