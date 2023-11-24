@@ -3,63 +3,19 @@ exception Semantic_error of Location.code_pos * string
 open Ast
 open Symbol_table
 
-let rec string_of_type = function
-  | TypI -> "int"
-  | TypC -> "char"
-  | TypF -> "float"
-  | TypB -> "bool"
-  | TypV -> "void"
-  | TypS s -> "struct " ^ s
-  | TypP t1 -> "*" ^ string_of_type t1
-  | TypNull -> "null"
-  | TypA (t, v) ->
-      string_of_type t ^ "[" ^ Option.fold ~none:"" ~some:string_of_int v ^ "]"
-
-let string_of_uop = function
-  | Neg -> "-"
-  | Not -> "!"
-  | PreIncr | PostIncr -> "++"
-  | PreDecr | PostDecr -> "--"
-  | BNot -> "~"
-
-let string_of_binop = function
-  | Add -> "+"
-  | Sub -> "-"
-  | Mult -> "*"
-  | Div -> "/"
-  | Mod -> "%"
-  | Equal -> "=="
-  | Neq -> "!="
-  | Less -> "<"
-  | Leq -> "<="
-  | Greater -> ">"
-  | Geq -> ">="
-  | And -> "&&"
-  | Or -> "||"
-  | Comma -> ","
-  | BOr -> "|"
-  | BAnd -> "&"
-  | BXor -> "^"
-  | LShift -> "<<"
-  | RShift -> ">>"
-
-type var_info = Location.code_pos * typ
-type fun_info = Location.code_pos * fun_decl
-type struct_info = Location.code_pos * struct_decl
-
-type symbols = {
-  fun_symbols : fun_info Symbol_table.t;
-  var_symbols : var_info Symbol_table.t;
-  struct_symbols : struct_info Symbol_table.t;
+type context = {
+  fun_symbols : (Location.code_pos * fun_decl) Symbol_table.t;
+  var_symbols : (Location.code_pos * typ) Symbol_table.t;
+  struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t;
 }
 (*
-  Function that allows strings to be used as variable initializer
+   Function that allows strings to be used as variable initializer
 
-  - If the array is declared with no initial size, the assigned size will be equal to string_length + 1(for null)
-  - Otherwise we only assign the string if the array has bigger size.
+   - If the array is declared with no initial size, the assigned size will be equal to string_length + 1(for null)
+   - Otherwise we only assign the string if the array has bigger size.
 
-  This function  could be modified to handle general array literals
- *)
+   This function  could be modified to handle general array literals
+*)
 
 let string_var_initialization location vars array_length id string =
   try
@@ -120,30 +76,34 @@ let check_var_decl symbols location (t, i) =
   with DuplicateEntry i ->
     raise @@ Semantic_error (location, "error: redefinition of " ^ i)
 
-let check_fun_type location typ =
-  match typ with
-  | TypA (_, _) | TypP _ | TypNull ->
-      raise
-      @@ Semantic_error (location, "Illegal function type " ^ string_of_type typ)
-  | _ -> ()
-
-(*
-- Checks that arrays can be unified
-- Allows NULL to be assigned to pointers with different element type
-
+(**
+    Checks if two types can be unified
+    @param location The location of the expression in the source code
+    @param t1 The first type
+    @param t2 The second type
+    @return true if the types can be unified, false otherwise
 *)
-let rec match_types location t1 t2 =
+let rec cmp_types location t1 t2 =
   match (t1, t2) with
   | TypA (t1, Some v), TypA (t2, Some v2) when v = v2 ->
-      match_types location t1 t2
+      cmp_types location t1 t2
   | TypA (_, Some v), TypA (_, Some v2) when v <> v2 ->
       raise @@ Semantic_error (location, "Array size must be the same")
   | TypA (t1, None), TypA (t2, _) | TypA (t1, _), TypA (t2, None) ->
-      match_types location t1 t2
+      cmp_types location t1 t2
   | TypP _, TypNull -> true
   | TypNull, TypP _ -> true
-  | TypP t1, TypP t2 -> match_types location t1 t2
+  | TypP t1, TypP t2 -> cmp_types location t1 t2
   | t1, t2 -> t1 = t2
+
+(**
+    Infers the type of a binary-operator expression
+    @param location The location of the expression in the source code
+    @param op The binary operator
+    @param et1 The type of the first operand
+    @param et2 The type of the second operand
+    @return The type of the expression
+*)
 
 let binaryexp_type location op et1 et2 =
   match (op, et1, et2) with
@@ -159,7 +119,7 @@ let binaryexp_type location op et1 et2 =
       TypB (*For simplicity only equality checks are allowed on characters *)
   | (Equal | Neq), TypP _, TypNull -> TypB
   | (Equal | Neq), TypNull, TypP _ -> TypB
-  | (Equal | Neq), TypP t1, TypP t2 when match_types location t1 t2 -> TypB
+  | (Equal | Neq), TypP t1, TypP t2 when cmp_types location t1 t2 -> TypB
   | (And | Or | Equal | Neq), TypB, TypB -> TypB
   | _ ->
       raise
@@ -169,12 +129,12 @@ let binaryexp_type location op et1 et2 =
              ^ " is not defined when the operands have type "
              ^ string_of_type et1 ^ " and " ^ string_of_type et2 )
 
-(**
-    Infers the type of an unary-operator expression
+(** Infers the type of an unary-operator expression
     @param location The location of the expression in the source code
-    @param u        The unary operator
-    @param et       The type of the expression
-**)
+    @param u The unary operator
+    @param et The type of the operand
+    @return The type of the expression
+*)
 let unaryexp_type location unop exp_typ =
   match (unop, exp_typ) with
   | Neg, TypI -> TypI
@@ -189,11 +149,11 @@ let unaryexp_type location unop exp_typ =
              "Operator " ^ string_of_uop unop ^ " not defined for type "
              ^ string_of_type exp_typ )
 
-(**
-    Infers the type of an expression
-    @param symbols  The current symbol table
-    @param expr     The expression to be inferred
-**)
+(** Infers the type of an expression
+    @param symbols The current symbol table
+    @param expr The expression to be inferred
+    @return The type of the expression
+*)
 let rec expr_type symbols expr =
   match expr.node with
   | Access a -> access_type symbols a
@@ -204,7 +164,7 @@ let rec expr_type symbols expr =
           raise @@ Semantic_error (e.loc, "array cannot be reassigned")
       | _ ->
           let et = expr_type symbols e in
-          if match_types e.loc at et then at
+          if cmp_types e.loc at et then at
           else
             raise
             @@ Semantic_error
@@ -254,7 +214,7 @@ let rec expr_type symbols expr =
           | _ ->
               List.iter2
                 (fun ft pt ->
-                  if match_types expr.loc ft pt then ()
+                  if cmp_types expr.loc ft pt then ()
                   else
                     raise
                     @@ Semantic_error
@@ -315,10 +275,10 @@ and access_type symbols a =
                (a.loc, "Trying to access field of non structure variable"))
 
 (*
-  Checks that a statement is well typed
-  @param symbols  The current symbol table
-  @param ftype    The return type of the function
-  @param statement The statement to be checked
+   Checks that a statement is well typed
+   @param symbols The current symbol table
+   @param ftype The return type of the function
+   @param statement The statement to be checked
 *)
 let rec stmt_type_check symbols ftype statement =
   match statement.node with
@@ -339,8 +299,8 @@ let rec stmt_type_check symbols ftype statement =
       else
         let _ = stmt_type_check symbols ftype body in
         true
-  | Expr e ->
-      expr_type symbols e |> ignore;
+  | Expr expr ->
+      expr_type symbols expr |> ignore;
       true
   | Return (Some expr) ->
       if expr_type symbols expr <> ftype then
@@ -373,10 +333,10 @@ let rec stmt_type_check symbols ftype statement =
 
 (**
     Checks that statements and declarations are well typed
-    @param symbols  The current symbol table
-    @param ftype    The return type of the function
-    @param sordec        The statement or declaration to be checked
-**)
+    @param symbols The current symbol table
+    @param ftype The return type of the function
+    @param sordec The statement or declaration to be checked
+*)
 and stmtordec_type_check symbols ftype sordec =
   match sordec.node with
   | DecList l ->
@@ -399,7 +359,7 @@ and stmtordec_type_check symbols ftype sordec =
                     @@ Semantic_error
                          (loc, "Array is not a valid value initializer")
                 | _ ->
-                    if match_types loc t et then ()
+                    if cmp_types loc t et then ()
                     else raise @@ Semantic_error (loc, "Value of different type")
                 ))
       in
@@ -407,13 +367,12 @@ and stmtordec_type_check symbols ftype sordec =
       true
   | Stmt s -> stmt_type_check symbols ftype s
 
-(**
-  Checks that a function parameter is well typed.
-  @param symbols  The current symbol table
-  @param location The location of the parameter in the source code.
-  @param typ       The type of the parameter
-  @param id        The name of the parameter
-**)
+(** Checks that a function parameter is well typed.
+    @param symbols The current symbol table
+    @param location The location of the parameter in the source code.
+    @param typ The type of the parameter
+    @param id The name of the parameter
+              **)
 let parameter_type_check symbols location (typ, id) =
   (* Function parameters are treated slightly different from normal variables. We only forbid void variables, but unsized arrays are allowed *)
   match typ with
@@ -428,33 +387,41 @@ let parameter_type_check symbols location (typ, id) =
              (location, "Parameter " ^ i ^ " already defined in current symbols")
       )
 
-(**
-  Checks that a function is well typed.
-  @param func     The function to be checked
-  @param symbols  The current symbol table
-  @param location The location of the function in the source code.
-**)
+(** Checks that a function is well typed.
+    @param func The function to be checked
+    @param symbols The current symbol table
+    @param location The location of the function in the source code.
+*)
 let func_type_check func symbols location =
-  check_fun_type location func.typ;
-  let new_scope =
-    { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }
-  in
-  List.iter (parameter_type_check new_scope location) func.formals;
-  match func.body.node with
-  (*
-    The Block case is intercepted to avoid the stmt_type_check function to forget the injection of parameters in
-    the function scope.
-  *)
-  | Block statements ->
-      List.fold_left
-        (fun acc stmtordec ->
-          if not acc then
-            raise
-            @@ Semantic_error (stmtordec.loc, "instruction after return found")
-          else acc && stmtordec_type_check new_scope func.typ stmtordec)
-        true statements
-      |> ignore
-  | _ -> stmt_type_check new_scope func.typ func.body |> ignore
+  match func.typ with
+  | TypA (_, _) | TypP _ | TypNull ->
+      raise
+      @@ Semantic_error
+           (location, "Illegal function type " ^ string_of_type func.typ)
+  | _ -> (
+      let new_scope =
+        {
+          symbols with
+          var_symbols = Symbol_table.begin_block symbols.var_symbols;
+        }
+      in
+      List.iter (parameter_type_check new_scope location) func.formals;
+      match func.body.node with
+      (*
+        The Block case is intercepted to avoid the stmt_type_check function to forget the injection of parameters in
+        the function scope.
+     *)
+      | Block statements ->
+          List.fold_left
+            (fun acc stmtordec ->
+              if not acc then
+                raise
+                @@ Semantic_error
+                     (stmtordec.loc, "instruction after return found")
+              else acc && stmtordec_type_check new_scope func.typ stmtordec)
+            true statements
+          |> ignore
+      | _ -> stmt_type_check new_scope func.typ func.body |> ignore)
 
 let rec global_expr_type symbols location expr =
   (*checks that a global variable is initialized with a constant value *)
@@ -491,7 +458,7 @@ let topdecl_type_check symbols node =
             | _ ->
                 check_var_decl symbols loc (t, i);
                 let et = global_expr_type symbols loc expr in
-                if match_types loc t et then ()
+                if cmp_types loc t et then ()
                   (* since global expression cannot be arrays we can directly use match_types *)
                 else raise @@ Semantic_error (loc, "Value of different type"))
       in
@@ -540,7 +507,11 @@ let rt_support =
     Rt_support.rt_functions;
   init_scope
 
-let add_function symbols topdecl =
+(**
+    Helper function used to add function signatures to the symbol table
+**)
+
+let add_fun_sign symbols topdecl =
   match topdecl.node with
   | Fundecl f ->
       let new_scope =
@@ -560,7 +531,7 @@ let type_check (Prog topdecls) =
       struct_symbols = Symbol_table.empty_table ();
     }
   in
-  let function_scope = List.fold_left add_function toplevel_scope topdecls in
+  let function_scope = List.fold_left add_fun_sign toplevel_scope topdecls in
   List.iter (topdecl_type_check function_scope) topdecls;
   check_global_properties toplevel_scope |> ignore;
   Prog topdecls

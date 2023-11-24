@@ -20,7 +20,7 @@ type binop =
   | RShift
 [@@deriving show]
 
-type uop = Neg | Not |  BNot | PreIncr | PreDecr | PostIncr | PostDecr 
+type uop = Neg | Not |  BNot | PreIncr | PreDecr | PostIncr | PostDecr
 [@@deriving show]
 
 type identifier = string [@@deriving show]
@@ -113,3 +113,44 @@ and topdecl_node =
 [@@deriving show]
 
 type program = Prog of topdecl list [@@deriving show]
+
+
+let rec string_of_type = function
+  | TypI -> "int"
+  | TypC -> "char"
+  | TypF -> "float"
+  | TypB -> "bool"
+  | TypV -> "void"
+  | TypS s -> "struct " ^ s
+  | TypP t1 -> "*" ^ string_of_type t1
+  | TypNull -> "null"
+  | TypA (t, v) ->
+      string_of_type t ^ "[" ^ Option.fold ~none:"" ~some:string_of_int v ^ "]"
+
+let string_of_uop = function
+  | Neg -> "-"
+  | Not -> "!"
+  | PreIncr | PostIncr -> "++"
+  | PreDecr | PostDecr -> "--"
+  | BNot -> "~"
+
+let string_of_binop = function
+  | Add -> "+"
+  | Sub -> "-"
+  | Mult -> "*"
+  | Div -> "/"
+  | Mod -> "%"
+  | Equal -> "=="
+  | Neq -> "!="
+  | Less -> "<"
+  | Leq -> "<="
+  | Greater -> ">"
+  | Geq -> ">="
+  | And -> "&&"
+  | Or -> "||"
+  | Comma -> ","
+  | BOr -> "|"
+  | BAnd -> "&"
+  | BXor -> "^"
+  | LShift -> "<<"
+  | RShift -> ">>"
