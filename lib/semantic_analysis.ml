@@ -9,6 +9,24 @@ type context = {
   struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t;
 }
 
+let check_global_properties symbols =
+  (*function used to check "global properties about the program", here it's used to verify the presence of main function *)
+  let m = Symbol_table.lookup "main" symbols.fun_symbols in
+  match m with
+  | Some (_, { typ = TypV; fname = "main"; formals = []; body = _ }) -> ()
+  | Some (_, { typ = TypI; fname = "main"; formals = []; body = _ }) -> ()
+  | Some (loc, _) -> raise @@ Semantic_error (loc, "Invalid signature of main")
+  | None ->
+      raise @@ Semantic_error (Location.dummy_code_pos, "main function missing")
+
+let rt_support =
+  (*adds library functions info *)
+  let init_scope = Symbol_table.empty_table () in
+  List.iter
+    (fun (name, f) -> Symbol_table.add_entry name f init_scope |> ignore)
+    Rt_support.rt_functions;
+  init_scope
+
 let init_string location var_symbols arr_length id string =
   try
     let length = string |> String.length in
@@ -486,52 +504,22 @@ let topdecl_type_check symbols node =
         raise @@ Semantic_error (node.loc, "Structure " ^ d ^ " already defined")
       )
 
-let check_global_properties symbols =
-  (*function used to check "global properties about the program", here it's used to verify the presence of main function *)
-  let m = Symbol_table.lookup "main" symbols.fun_symbols in
-  match m with
-  | Some (_, { typ = TypV; fname = "main"; formals = []; body = _ }) -> ()
-  | Some (_, { typ = TypI; fname = "main"; formals = []; body = _ }) -> ()
-  | Some (loc, _) -> raise @@ Semantic_error (loc, "Invalid signature of main")
-  | None ->
-      raise @@ Semantic_error (Location.dummy_code_pos, "main function missing")
 
-let rt_support =
-  (*adds library functions info *)
-  let init_scope = Symbol_table.empty_table () in
-  List.iter
-    (fun (name, f) -> Symbol_table.add_entry name f init_scope |> ignore)
-    Rt_support.rt_functions;
-  init_scope
 
-(**
-    Helper function used to add function signatures to the symbol table
-**)
-
-let add_fun_sign symbols topdecl =
-  match topdecl.node with
-  | Fundecl f ->
-      let new_scope =
-        try Symbol_table.add_entry f.fname (topdecl.loc, f) symbols.fun_symbols
-        with DuplicateEntry d ->
-          raise
-          @@ Semantic_error (topdecl.loc, "function " ^ d ^ " already defined")
-      in
-      { symbols with fun_symbols = new_scope }
-  | _ -> symbols
-
-let add_struct_sign symbols topdecl =
+let add_fun_struct_sign symbols topdecl =
   match topdecl.node with
   | Structdecl s ->
-      let new_scope =
-        try
+        (try
           Symbol_table.add_entry s.sname (topdecl.loc, s) symbols.struct_symbols
         with DuplicateEntry d ->
           raise
-          @@ Semantic_error (topdecl.loc, "structure " ^ d ^ " already defined")
-      in
-      { symbols with struct_symbols = new_scope }
-  | _ -> symbols
+          @@ Semantic_error (topdecl.loc, "structure " ^ d ^ " already defined")) |> ignore;
+  | Fundecl f ->
+        (try Symbol_table.add_entry f.fname (topdecl.loc, f) symbols.fun_symbols
+        with DuplicateEntry d ->
+          raise
+          @@ Semantic_error (topdecl.loc, "function " ^ d ^ " already defined")) |> ignore;
+  | _ -> ()
 
 let type_check (Prog topdecls) =
   let toplevel_scope =
@@ -541,8 +529,7 @@ let type_check (Prog topdecls) =
       struct_symbols = Symbol_table.empty_table ();
     }
   in
-  let struct_scope = List.fold_left add_struct_sign toplevel_scope topdecls in
-  let function_scope = List.fold_left add_fun_sign struct_scope topdecls in
-  List.iter (topdecl_type_check function_scope) topdecls;
+  List.iter (add_fun_struct_sign toplevel_scope) topdecls;
+  List.iter (topdecl_type_check toplevel_scope) topdecls;
   check_global_properties toplevel_scope |> ignore;
   Prog topdecls

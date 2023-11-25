@@ -479,15 +479,7 @@ let codegen_topdecl llmodule symbols n =
         codegen_global_variable llmodule symbols (t, i) init
       in
       List.iter (var_gen llmodule symbols) l
-  | Structdecl s ->
-      let named_s =
-        Symbol_table.lookup s.sname symbols.struct_symbols |> Option.get |> fst
-      in
-      let fields_t =
-        s.fields
-        |> List.map (fun (t, _) -> build_llvm_type symbols.struct_symbols t)
-      in
-      L.struct_set_body named_s (Array.of_list fields_t) false
+  | Structdecl _ -> ()
 
 let add_rt_support llmodule symbols =
   (*declares function prototypes *)
@@ -508,8 +500,7 @@ let add_rt_support llmodule symbols =
            (L.declare_function n t llmodule)
            symbols.fun_symbols
          |> ignore)
-
-let add_function_sig llmodule symbols node =
+let add_fun_sign llmodule symbols node =
   match node.node with
   | Fundecl func ->
       let ret_type = build_llvm_type symbols.struct_symbols func.typ in
@@ -524,24 +515,22 @@ let add_function_sig llmodule symbols node =
       in
       let f_type = L.function_type ret_type (Array.of_list formals_types) in
       let f = L.define_function func.fname f_type llmodule in
-      {
-        symbols with
-        fun_symbols = Symbol_table.add_entry func.fname f symbols.fun_symbols;
-      }
-  | _ -> symbols
-
-let add_struct_sig llcontext symbols node =
+      Symbol_table.add_entry func.fname f symbols.fun_symbols |> ignore
+  | _ -> ()
+let codegen_struct symbols node =
   match node.node with
   | Structdecl s ->
       let named_s = L.named_struct_type llcontext s.sname in
-      {
-        symbols with
-        struct_symbols =
-          Symbol_table.add_entry s.sname
-            (named_s, s.fields |> List.map snd)
-            symbols.struct_symbols;
-      }
-  | _ -> symbols
+      Symbol_table.add_entry s.sname
+        (named_s, s.fields |> List.map snd)
+        symbols.struct_symbols
+      |> ignore;
+      let fields_t =
+        s.fields
+        |> List.map (fun (t, _) -> build_llvm_type symbols.struct_symbols t)
+      in
+      L.struct_set_body named_s (Array.of_list fields_t) false |> ignore
+  | _ -> ()
 
 let to_llvm_module (Prog topdecls) =
   let module_name = "microc_module" in
@@ -555,12 +544,8 @@ let to_llvm_module (Prog topdecls) =
   in
   (* Preventively add all the struct and function signatures
      to allow independent-declarations *)
-  let struct_scope =
-    List.fold_left (add_struct_sig llcontext) init_scope topdecls
-  in
-  let function_scope =
-    List.fold_left (add_function_sig llmodule) struct_scope topdecls
-  in
-  add_rt_support llmodule function_scope;
-  List.iter (codegen_topdecl llmodule function_scope) topdecls;
+  List.iter (codegen_struct init_scope) topdecls;
+  List.iter (add_fun_sign llmodule init_scope) topdecls;
+  add_rt_support llmodule init_scope;
+  List.iter (codegen_topdecl llmodule init_scope) topdecls;
   llmodule
