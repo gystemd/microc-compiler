@@ -26,11 +26,11 @@ let rec build_llvm_type structs = function
   | TypF -> float_type
   | TypC -> char_type
   | TypB -> bool_type
-  | TypA (t, Some v) -> L.array_type (build_llvm_type structs t) v
-  | TypA (t, None) | TypP t ->
-    L.pointer_type (build_llvm_type structs t)
-    (*Unsized arrays are directly converted to pointers *)
   | TypV -> void_type
+  | TypA (t, None) | TypP t ->
+    (*wrap the array with a pointer to recognize that it is unsized *)
+    L.pointer_type (build_llvm_type structs t)
+  | TypA (t, Some v) -> L.array_type (build_llvm_type structs t) v
   | TypNull -> L.pointer_type void_type
   | TypS n ->
     (match Symbol_table.lookup n structs with
@@ -180,7 +180,6 @@ let build_unary_incr_or_decr builder op value =
   if op = PreIncr || op = PreDecr then after else before
 ;;
 
-
 let rec codegen_expr symbols builder expr =
   match expr.node with
   | Null -> L.undef (int_type |> L.pointer_type)
@@ -204,7 +203,9 @@ let rec codegen_expr symbols builder expr =
     let acc = codegen_access symbols builder a in
     let a_val = L.build_load acc "" builder in
     let e_val = codegen_expr symbols builder e in
-    let value = codegen_bin_op (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder in
+    let value =
+      codegen_bin_op (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder
+    in
     L.build_store value acc builder |> ignore;
     value
   | SizeOf expr ->
@@ -255,24 +256,18 @@ let rec codegen_expr symbols builder expr =
       | Access a ->
         let a_val = codegen_access symbols builder a in
         let pt = p |> L.type_of |> L.classify_type in
-        (match pt with
-         | L.TypeKind.Pointer ->
-           if a_val |> L.type_of |> L.element_type |> L.classify_type = L.TypeKind.Array
-           then L.build_gep a_val [| llvm_zero; llvm_zero |] "" builder
-           else if a_val
-                   |> L.type_of
-                   |> L.element_type
-                   |> L.classify_type
-                   = L.TypeKind.Pointer
-           then L.build_load a_val "" builder
-           else a_val
-         | _ -> L.build_load a_val "" builder)
+        let a_type = a_val |> L.type_of |> L.element_type |> L.classify_type in
+        (match pt, a_type with
+         | L.TypeKind.Pointer, L.TypeKind.Array ->
+           L.build_gep a_val [| llvm_zero; llvm_zero |] "" builder
+         | L.TypeKind.Pointer, L.TypeKind.Pointer -> L.build_load a_val "" builder
+         | L.TypeKind.Pointer, _ -> a_val
+         | _, _ -> L.build_load a_val "" builder)
       | _ ->
         let e_val = codegen_expr symbols builder e in
-        if L.type_of e_val |> L.element_type |> L.classify_type = L.TypeKind.Array
-        then (* string literal *)
-          L.build_gep e_val [| llvm_zero; llvm_zero |] "" builder
-        else e_val
+        (match L.type_of e_val |> L.element_type |> L.classify_type with
+         | L.TypeKind.Array -> L.build_gep e_val [| llvm_zero; llvm_zero |] "" builder
+         | _ -> e_val)
     in
     let fparams = L.params actual_f |> Array.to_list in
     let llvm_params =
@@ -290,18 +285,19 @@ and codegen_access symbols builder a =
      | None -> raise @@ Codegen_error ("Variable " ^ id ^ " not defined"))
   | AccDeref expr -> codegen_expr symbols builder expr
   | AccIndex (a, index) ->
-    (*Because unsized arrays are pointers, index access can be used with pointers, and
-      we must decide the correct gep instruction to build. *)
     let a_val = codegen_access symbols builder a in
     let ind = codegen_expr symbols builder index in
     let at = a_val |> L.type_of in
     (match at |> L.classify_type with
      | L.TypeKind.Pointer ->
        (match at |> L.element_type |> L.classify_type with
+        (*Unsized array case: dereference the first element to get the sized array*)
         | L.TypeKind.Array -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder
+        (*non-array pointer case*)
         | _ ->
           let load_val = Llvm.build_load a_val "" builder in
           Llvm.build_in_bounds_gep load_val [| ind |] "" builder)
+     (* it's a normal array *)
      | _ -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder)
   | AccStructField (a, f) ->
     let a_val = codegen_access symbols builder a in
@@ -318,7 +314,6 @@ and codegen_access symbols builder a =
        L.build_struct_gep a_val field_pos "" builder
      | None -> raise @@ Codegen_error ("Undefined struct " ^ Option.get sname))
 ;;
-
 
 let rec codegen_stmt fdef symbols builder stmt =
   let build_while choose_block condition body =
@@ -396,6 +391,18 @@ and codegen_stmtordec fdef symbols builder st =
   | Stmt s -> codegen_stmt fdef symbols builder s
 ;;
 
+let codegen_param symbols builder (t, id) param =
+  let tp =
+    match t with
+    | TypA (t1, _) -> build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
+    | _ -> build_llvm_type symbols.struct_symbols t
+  in
+  let l = L.build_alloca tp "" builder in
+  (*store function parameters *)
+  Symbol_table.add_entry id l symbols.var_symbols |> ignore;
+  L.build_store param l builder |> ignore
+;;
+
 (*
    - Generate parameters
    - Generate function body
@@ -408,18 +415,10 @@ let codegen_func symbols func =
   let f = Symbol_table.lookup func.fname symbols.fun_symbols |> Option.get in
   let ret_type = build_llvm_type symbols.struct_symbols func.typ in
   let f_builder = L.entry_block f |> L.builder_at_end llcontext in
-  let build_param symbols builder (t, id) param =
-    let tp =
-      match t with
-      | TypA (t1, _) -> build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
-      | _ -> build_llvm_type symbols.struct_symbols t
-    in
-    let l = L.build_alloca tp "" builder in
-    (*store function parameters *)
-    Symbol_table.add_entry id l symbols.var_symbols |> ignore;
-    L.build_store param l builder |> ignore
-  in
-  List.iter2 (build_param local_scope f_builder) func.formals (L.params f |> Array.to_list);
+  List.iter2
+    (codegen_param local_scope f_builder)
+    func.formals
+    (L.params f |> Array.to_list);
   codegen_stmt f local_scope f_builder func.body |> ignore;
   match func.typ with
   | TypV -> add_terminator f_builder L.build_ret_void
