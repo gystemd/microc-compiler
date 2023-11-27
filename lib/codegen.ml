@@ -392,11 +392,7 @@ and codegen_stmtordec fdef symbols builder st =
 ;;
 
 let codegen_param symbols builder (t, id) param =
-  let tp =
-    match t with
-    | TypA (t1, _) -> build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
-    | _ -> build_llvm_type symbols.struct_symbols t
-  in
+  let tp = build_llvm_type symbols.struct_symbols t in
   let l = L.build_alloca tp "" builder in
   (*store function parameters *)
   Symbol_table.add_entry id l symbols.var_symbols |> ignore;

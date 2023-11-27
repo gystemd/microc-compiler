@@ -1,9 +1,11 @@
 #!/bin/bash
 #!/bin/bash
 
+#read the folder in input
+folder=$1
 clang="clang -w"
 microcc="bin/microcc.exe"
-for file in samples/*fail*.mc; do
+for file in $folder/*fail*.mc; do
     name=${file%%.*}
     dune exec -- $microcc $name.mc -o $name.bc > /dev/null 2>&1
     if [ $? -ne 0 ]; then
@@ -13,7 +15,7 @@ for file in samples/*fail*.mc; do
     fi
 done
 
-for file in samples/test*.mc; do
+for file in $folder/test*.mc; do
     name=${file%%.*}
     dune exec -- $microcc $name.mc -o $name.bc
     if [ $? -ne 0 ]; then
@@ -30,5 +32,5 @@ for file in samples/test*.mc; do
 
 done
 
-rm -f samples/*.bc
-rm -f samples/*.elf
+rm -f $folder/*.bc
+rm -f $folder/*.elf

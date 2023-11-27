@@ -6,3 +6,4 @@ report.tex
 *.fdb_latexmk
 *.synctex.gz
 *.pdf
+test-custom*/*
