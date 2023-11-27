@@ -9,6 +9,21 @@ type context =
   ; struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t
   }
 
+let add_fun_struct_sign symbols topdecl =
+  match topdecl.node with
+  | Structdecl s ->
+    (try Symbol_table.add_entry s.sname (topdecl.loc, s) symbols.struct_symbols with
+     | DuplicateEntry d ->
+       raise @@ Semantic_error (topdecl.loc, "structure " ^ d ^ " already defined"))
+    |> ignore
+  | Fundecl f ->
+    (try Symbol_table.add_entry f.fname (topdecl.loc, f) symbols.fun_symbols with
+     | DuplicateEntry d ->
+       raise @@ Semantic_error (topdecl.loc, "function " ^ d ^ " already defined"))
+    |> ignore
+  | _ -> ()
+;;
+
 let check_main_signature symbols =
   let m = Symbol_table.lookup "main" symbols.fun_symbols in
   match m with
@@ -87,21 +102,6 @@ let rec check_type_declaration structs location t =
      | Some _ -> ()
      | None -> raise @@ Semantic_error (location, "Undefined struct " ^ s))
   | _ -> ()
-;;
-
-(** Checks if a variable declaration is well typed
-    @param symbols The current symbol table
-    @param location The location of the declaration in the source code
-    @param t The type of the variable
-    @param i The name of the variable *)
-let check_var_decl symbols location (t, i) =
-  (match t with
-   | TypV -> raise @@ Semantic_error (location, "Cannot declare a void variable")
-   | TypA (_, None) ->
-     raise @@ Semantic_error (location, "Size missing for array declaration")
-   | _ -> check_type_declaration symbols.struct_symbols location t);
-  try Symbol_table.add_entry i (location, t) symbols.var_symbols |> ignore with
-  | DuplicateEntry i -> raise @@ Semantic_error (location, "error: redefinition of " ^ i)
 ;;
 
 (** Infers the type of a binary-operator expression
@@ -269,6 +269,21 @@ and access_type symbols a =
        raise @@ Semantic_error (a.loc, "Trying to access field of non structure variable"))
 ;;
 
+(** Checks if a variable declaration is well typed
+    @param symbols The current symbol table
+    @param location The location of the declaration in the source code
+    @param t The type of the variable
+    @param i The name of the variable *)
+let var_decl_type_check symbols location (t, i) =
+  (match t with
+   | TypV -> raise @@ Semantic_error (location, "Cannot declare a void variable")
+   | TypA (_, None) ->
+     raise @@ Semantic_error (location, "Size missing for array declaration")
+   | _ -> check_type_declaration symbols.struct_symbols location t);
+  try Symbol_table.add_entry i (location, t) symbols.var_symbols |> ignore with
+  | DuplicateEntry i -> raise @@ Semantic_error (location, "error: redefinition of " ^ i)
+;;
+
 (*
    Checks that a statement is well typed
    @param symbols The current symbol table
@@ -331,13 +346,13 @@ and stmtordec_type_check symbols ftype sordec =
   | DecList l ->
     let check_var loc x =
       match x with
-      | t, id, None -> check_var_decl symbols loc (t, id)
+      | t, id, None -> var_decl_type_check symbols loc (t, id)
       | t, id, Some e ->
         (match t, e.node with
          | TypA (TypC, None), String str -> init_string loc symbols.var_symbols 0 id str
          | TypA (TypC, Some v), String str -> init_string loc symbols.var_symbols v id str
          | _ ->
-           check_var_decl symbols loc (t, id);
+           var_decl_type_check symbols loc (t, id);
            let et = expr_type symbols e in
            (match et with
             | TypA (_, _) ->
@@ -426,13 +441,13 @@ let topdecl_type_check symbols node =
   | VarDecList l ->
     let check_var loc x =
       match x with
-      | t, i, None -> check_var_decl symbols loc (t, i)
+      | t, i, None -> var_decl_type_check symbols loc (t, i)
       | t, i, Some expr ->
         (match t, expr.node with
          | TypA (TypC, None), String str -> init_string loc symbols.var_symbols 0 i str
          | TypA (TypC, Some v), String str -> init_string loc symbols.var_symbols v i str
          | _ ->
-           check_var_decl symbols loc (t, i);
+           var_decl_type_check symbols loc (t, i);
            let et = global_expr_type symbols loc expr in
            if compare_types loc t et
            then
@@ -443,7 +458,6 @@ let topdecl_type_check symbols node =
     List.iter (check_var node.loc) l
   | Structdecl s ->
     (try
-       (*immediately adds its own name to defined structs *)
        let struct_scope =
          { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }
        in
@@ -453,27 +467,12 @@ let topdecl_type_check symbols node =
            match f with
            | TypS f, id when f = s.sname ->
              raise @@ Semantic_error (node.loc, "Field " ^ id ^ " has incomplete type")
-           | _ -> check_var_decl struct_scope node.loc f)
+           | _ -> var_decl_type_check struct_scope node.loc f)
          s.fields;
        Symbol_table.end_block struct_scope.var_symbols |> ignore
      with
      | DuplicateEntry d ->
        raise @@ Semantic_error (node.loc, "Structure " ^ d ^ " already defined"))
-;;
-
-let add_fun_struct_sign symbols topdecl =
-  match topdecl.node with
-  | Structdecl s ->
-    (try Symbol_table.add_entry s.sname (topdecl.loc, s) symbols.struct_symbols with
-     | DuplicateEntry d ->
-       raise @@ Semantic_error (topdecl.loc, "structure " ^ d ^ " already defined"))
-    |> ignore
-  | Fundecl f ->
-    (try Symbol_table.add_entry f.fname (topdecl.loc, f) symbols.fun_symbols with
-     | DuplicateEntry d ->
-       raise @@ Semantic_error (topdecl.loc, "function " ^ d ^ " already defined"))
-    |> ignore
-  | _ -> ()
 ;;
 
 let type_check (Prog topdecls) =

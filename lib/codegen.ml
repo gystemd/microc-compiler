@@ -38,17 +38,42 @@ let rec build_llvm_type structs = function
      | None -> raise @@ Codegen_error ("structure " ^ n ^ " not defined"))
 ;;
 
+let add_rt_support llmodule symbols =
+  (*declares function prototypes *)
+  let params_to_array params =
+    params
+    |> List.map fst
+    |> List.map (build_llvm_type symbols.struct_symbols)
+    |> Array.of_list
+  in
+  let fun_type f =
+    L.function_type
+      (build_llvm_type symbols.struct_symbols f.typ)
+      (params_to_array f.formals)
+  in
+  Rt_support.rt_functions
+  |> List.map (fun (n, (_, f)) -> n, fun_type f)
+  |> List.iter (fun (n, t) ->
+    Symbol_table.add_entry n (L.declare_function n t llmodule) symbols.fun_symbols
+    |> ignore)
+;;
+
 let normalize_expr e t =
   if L.is_undef e
   then L.const_pointer_null t
   else e (*helper function to handle situations where null appears *)
 ;;
 
+let add_terminator builder after =
+  let terminator = L.block_terminator (L.insertion_block builder) in
+  if Option.is_none terminator then after builder |> ignore else ()
+;;
+
 (*
    For binary and unary  operators, we check that the operands are of the correct type and return the correct instruction builder.
    We exploit partial functions to return a new function that takes the generate subexpressions and build the final one.
 *)
-let unop = function
+let codegen_unop = function
   | t, Neg when t = int_type -> L.build_neg
   | t, Neg when t = float_type -> L.build_fneg
   | t, Not when t = bool_type -> L.build_not
@@ -56,7 +81,7 @@ let unop = function
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
-let bin_op = function
+let codegen_bin_op = function
   | t1, t2, Add when t1 = int_type && t2 = int_type -> L.build_add
   | t1, t2, Sub when t1 = int_type && t2 = int_type -> L.build_sub
   | t1, t2, Div when t1 = int_type && t2 = int_type -> L.build_sdiv
@@ -99,14 +124,14 @@ let bin_op = function
 ;;
 
 (* Uses const instructions when dealing with global expressions *)
-let const_op = function
+let codegen_const_op = function
   | t, Neg when t = int_type -> L.const_neg
   | t, Neg when t = float_type -> L.const_fneg
   | t, Not when t = bool_type -> L.const_not
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
-let const_bin_op = function
+let codegen_const_binop = function
   | t1, t2, Add when t1 = int_type && t2 = int_type -> L.const_add
   | t1, t2, Sub when t1 = int_type && t2 = int_type -> L.const_sub
   | t1, t2, Mult when t1 = int_type && t2 = int_type -> L.const_mul
@@ -179,7 +204,7 @@ let rec codegen_expr symbols builder expr =
     let acc = codegen_access symbols builder a in
     let a_val = L.build_load acc "" builder in
     let e_val = codegen_expr symbols builder e in
-    let value = bin_op (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder in
+    let value = codegen_bin_op (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder in
     L.build_store value acc builder |> ignore;
     value
   | SizeOf expr ->
@@ -203,7 +228,7 @@ let rec codegen_expr symbols builder expr =
   | UnaryOp (u, e) ->
     let e_val = codegen_expr symbols builder e in
     (*gets the correct binary expression and builds the actual instruction *)
-    unop (L.type_of e_val, u) e_val "" builder
+    codegen_unop (L.type_of e_val, u) e_val "" builder
   | BinaryOp (b, e1, e2) ->
     let e1_val, e2_val =
       let v1, v2 = codegen_expr symbols builder e1, codegen_expr symbols builder e2 in
@@ -217,7 +242,7 @@ let rec codegen_expr symbols builder expr =
       | e1v, e2v -> e1v, e2v
     in
     (*gets the correct binary expression and builds the actual instruction *)
-    bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
+    codegen_bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
   | Call (func, params) ->
     let actual_f =
       match Symbol_table.lookup func symbols.fun_symbols with
@@ -294,10 +319,6 @@ and codegen_access symbols builder a =
      | None -> raise @@ Codegen_error ("Undefined struct " ^ Option.get sname))
 ;;
 
-let add_terminator builder after =
-  let terminator = L.block_terminator (L.insertion_block builder) in
-  if Option.is_none terminator then after builder |> ignore else ()
-;;
 
 let rec codegen_stmt fdef symbols builder stmt =
   let build_while choose_block condition body =
@@ -387,7 +408,7 @@ let codegen_func symbols func =
   let f = Symbol_table.lookup func.fname symbols.fun_symbols |> Option.get in
   let ret_type = build_llvm_type symbols.struct_symbols func.typ in
   let f_builder = L.entry_block f |> L.builder_at_end llcontext in
-  let build_param symbols builder (t, i) p =
+  let build_param symbols builder (t, id) param =
     let tp =
       match t with
       | TypA (t1, _) -> build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
@@ -395,8 +416,8 @@ let codegen_func symbols func =
     in
     let l = L.build_alloca tp "" builder in
     (*store function parameters *)
-    Symbol_table.add_entry i l symbols.var_symbols |> ignore;
-    L.build_store p l builder |> ignore
+    Symbol_table.add_entry id l symbols.var_symbols |> ignore;
+    L.build_store param l builder |> ignore
   in
   List.iter2 (build_param local_scope f_builder) func.formals (L.params f |> Array.to_list);
   codegen_stmt f local_scope f_builder func.body |> ignore;
@@ -418,12 +439,12 @@ let rec codegen_global_expr structs t expr =
   | UnaryOp (uop, e1) ->
     let a = codegen_global_expr structs t e1 in
     let t1 = L.type_of a in
-    const_op (t1, uop) a
+    codegen_const_op (t1, uop) a
   | BinaryOp (binop, e1, e2) ->
     let a = codegen_global_expr structs t e1 in
     let b = codegen_global_expr structs t e2 in
     let t1, t2 = L.type_of a, L.type_of b in
-    const_bin_op (t1, t2, binop) a b
+    codegen_const_binop (t1, t2, binop) a b
   | _ -> raise @@ Codegen_error "Invalid initial expression for global variable"
 ;;
 
@@ -448,26 +469,6 @@ let codegen_topdecl llmodule symbols n =
     in
     List.iter (var_gen llmodule symbols) l
   | Structdecl _ -> ()
-;;
-
-let add_rt_support llmodule symbols =
-  (*declares function prototypes *)
-  let params_to_array params =
-    params
-    |> List.map fst
-    |> List.map (build_llvm_type symbols.struct_symbols)
-    |> Array.of_list
-  in
-  let fun_type f =
-    L.function_type
-      (build_llvm_type symbols.struct_symbols f.typ)
-      (params_to_array f.formals)
-  in
-  Rt_support.rt_functions
-  |> List.map (fun (n, (_, f)) -> n, fun_type f)
-  |> List.iter (fun (n, t) ->
-    Symbol_table.add_entry n (L.declare_function n t llmodule) symbols.fun_symbols
-    |> ignore)
 ;;
 
 let add_fun_sign llmodule symbols node =
