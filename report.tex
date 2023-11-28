@@ -3,7 +3,7 @@
 \usepackage{graphicx} % Required for inserting images
 \usepackage{listings}
 \usepackage{adjustbox}
-\title{compilers report}
+\title{Microc report}
 \author{Giulio Piva}
 \date{November 2023}
 
@@ -14,7 +14,6 @@
 
 \section{Parser}
 The following is the grammar of microc:
-\begin{adjustbox}{margin=-7cm 0cm 0cm 0cm}
 \begin{lstlisting}[language=C, basicstyle=\ttfamily\fontsize{8pt}{14pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
 Program::= Topdecl* EOF
 
@@ -67,14 +66,13 @@ Shortop ::= "+=" | "-=" | "*=" | "/=" | "&="
 AExpr ::= INT | CHAR | BOOL | FLOAT | STRING | "NULL"
 | "(" RExpr ")" | "&" LExpr
 \end{lstlisting}
-\end{adjustbox}
 It has been modified to accomodate the following features:
 \begin{itemize}
     \item multiple variable declaration and initialization: multiple variables can be declared and initialized in a single statement
     like the following: \textbf{int a = 1, b = 2, c = 3;}. However, since function parameters and struct fields don't support initialization,
     two different rules have been created: varlist and genericparam. The first one is used for variable declarations,
     while the latter is used for declaring function parameters and struct fields.
-    \item sizeof operator. It is not possible to use types as parameter of the sizeof operator, but only expressions.
+    \item sizeof operator: sizeof is considered as operator and not as a function. As such, its name has been added to the list of reserved keywords.
     \item bitwise operators
     \item short assignment operators
     \item Struct declaration and access
@@ -129,22 +127,23 @@ All of these leverage the following other functions to obtain the type of their 
   \item \textbf{binaryexp\_type}
 \end{itemize}
 
-\subsection*{Semantic analysis Symbol Table}
+\subsection{Semantic analysis Symbol Table}
 The type signature of the symbol table for this phase is the following:
 
-\begin{lstlisting}[basicstyle=\ttfamily\fontsize{9pt}{4pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
-type context =
-  { fun_symbols : (Location.code_pos * fun_decl) Symbol_table.t
-  ; var_symbols : (Location.code_pos * typ) Symbol_table.t
-  ; struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t
-  }
-\end{lstlisting}
-Location is always saved to allow for better error reporting.
-\begin{itemize}
-  \item
-  \end{itemize}
+\begin{lstlisting}[basicstyle=\ttfamily\fontsize{6pt}{1em}]
+type var_info = (code_pos * fun_decl) Symbol_table.t;
+type fun_info = (code_pos * typ) Symbol_table.t;
+type struct_info = (code_pos * struct_decl) Symbol_table.t;
 
-\subsection*{Additional rules}
+type context = {
+  fun_symbols : fun_info Symbol_table.t;
+  var_symbols : var_info Symbol_table.t;
+  struct_symbols : struct_info Symbol_table.t
+}
+\end{lstlisting}
+
+
+\subsection{Additional rules}
 \paragraph*{Type unification}
    There are cases in which in which types should not directly be tested to be equal, but rather they should be checked if compatible.
    A helper function \textbf{match\_types} is used to implement the two following type checking rules:
@@ -167,8 +166,7 @@ This entails a first scan of the program to add the signatures to the
 symbol table. The bodies instead are checked in the subsequent scan.
 
 \paragraph*{deadcode detection}
-There different forms of deadcode, but the one chosen to implement for this project is the one
-that detects code after a return statement.
+Different forms of deadcode exist. For this project, I implemented the detection of code after a return statement.
 To implement this analysis, a boolean flag has been added to the return type of \textbf{stmt\_type\_check} and \textbf{stmtordec\_type\_check}
 to signal whether the scan should continue or not, that is if a return statement has been found.
 In case of instructions after a return statement, an exception is raised.
@@ -184,8 +182,95 @@ The relevant functions are the following:
 \begin{itemize}
   \item \textbf{codegen\_fundecl}: maps a function declaration to a LLVM function
   \item \textbf{codegen\_structdecl}:
-  \item \textbf{codegen\_stmt}
-  \item \textbf{codegen\_access}
+  \item \textbf{codegen\_stmt}: maps a statement to its corresponding LLVM operation.
+  In particular if,while and do-while statements are mapped according to
+  the following templates: \\
+  \textbf{if statement}: \\
+
+\begin{minipage}{0.20\textwidth}
+\begin{verbatim}
+  if(cond) {
+    ...
+  }
+  else {
+    ...
+  }
+  <remaining code>
+\end{verbatim}
+\end{minipage}
+\hspace{1cm} $\rightarrow$ \hspace{0.5cm}
+\begin{minipage}{0.45\textwidth}
+\begin{verbatim}
+br <cond>, label %then, label %else
+then:
+  ; then body
+else:
+  ; else body
+  br label %cont
+cont:
+  ; remaining code
+\end{verbatim}
+\end{minipage}
+
+
+%while
+\textbf{while statement}: \\
+
+\begin{minipage}{0.20\textwidth}
+\begin{verbatim}
+  while(cond) {
+    ...
+  }
+  <remaining code>
+\end{verbatim}
+\end{minipage}
+\hspace{1cm} $\rightarrow$ \hspace{0.5cm}
+\begin{minipage}{0.45\textwidth}
+\begin{verbatim}
+br label %test
+test:
+  ; necessary code to evaluate cond
+  br <cond>, label %body, label %cont
+
+body:
+  ; while body
+  br label %test
+
+cont:
+  ; remaining code
+
+\end{verbatim}
+\end{minipage}
+
+%do-while
+% \textbf{do-while statement}: \\
+
+% \begin{minipage}{0.20\textwidth}
+% \begin{verbatim}
+%   while(cond) {
+%     ...
+%   }
+%   <remaining code>
+% \end{verbatim}
+% \end{minipage}
+% \hspace{1cm} $\rightarrow$ \hspace{0.5cm}
+% \begin{minipage}{0.45\textwidth}
+% \begin{verbatim}
+% br label %test
+% test:
+%   ; necessary code to evaluate cond
+%   br <cond>, label %body, label %cont
+
+% body:
+%   ; while body
+%   br label %test
+
+% cont:
+%   ; remaining code
+
+% \end{verbatim}
+% \end{minipage}
+  \item \textbf{codegen\_access}: maps each variable, pointer and array access to the associated address in memory
   \item \textbf{codegen\_un\_op}
   \item \textbf{codegen\_bin\_op}
 \end{itemize}
@@ -220,3 +305,7 @@ int foo(int a[]) {
 At llvm level, \textbf{a} will have a pointer as type, whereas \textbf{b} will array type.
 Therefore, when accessing an array, the two cases must be handled accordingly.
 \end{document}
+
+\subsection*{Global variable initialization}
+Since the initialization of global variables can be performed only with compile-time defined constants,
+for this kind of variables I employed operations on constants. 
