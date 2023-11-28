@@ -100,16 +100,6 @@ rule next_token = parse
     | eof   { EOF}
     | _ as c           { raise_lexer_error lexbuf @@ "Illegal character " ^ Char.escaped c }
 
-and singlelinecomment = parse
-    | newline {Lexing.new_line lexbuf; next_token lexbuf}
-    | _ {singlelinecomment lexbuf}
-
-and multilinecomment = parse
-    | "*/" {next_token lexbuf}
-    | newline {Lexing.new_line lexbuf; multilinecomment lexbuf}
-    | eof {raise_lexer_error lexbuf "Unexpected end of file in comment"}
-    | _ { multilinecomment lexbuf}
-
 and get_char = parse
     | '\\' '/' "'" { CHARLIT('/') }
     | '\\' '\\' "'" {CHARLIT( '\\')}
@@ -139,3 +129,13 @@ and get_string  buffer = parse
     }
     | eof {raise_lexer_error lexbuf "string is not terminated"}
     | _   {raise_lexer_error lexbuf @@ "Illegal string character " ^Lexing.lexeme lexbuf}
+and singlelinecomment = parse
+    | newline {Lexing.new_line lexbuf; next_token lexbuf}
+    | _ {singlelinecomment lexbuf}
+
+and multilinecomment = parse
+    | "*/" {next_token lexbuf}
+    | newline {Lexing.new_line lexbuf; multilinecomment lexbuf}
+    | eof {raise_lexer_error lexbuf "Unexpected end of file in comment"}
+    | _ { multilinecomment lexbuf}
+

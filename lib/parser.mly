@@ -3,24 +3,24 @@
 
 
         (* helper function to create the AST nodes*)
-        let node nd loc = {loc = (Location.to_code_position loc); node = nd; id=0}
-       
-         (* utility functions to convert a for to a while *)         
-        let for_opt_init e loc =
+        let ann_node nd loc = {loc = (Location.to_code_position loc); node = nd; id=0}
+
+         (* utility functions to convert a for to a while *)
+        let build_for_init e loc =
               match e with
-              | Some(x) -> node (Stmt(node (Expr(x)) loc)) loc
-              | None -> node (Stmt(node (Block([])) loc)) loc
-            
-        
-        let for_opt_cond e loc =
+              | Some(x) -> ann_node(Stmt(ann_node(Expr(x)) loc)) loc
+              | None -> ann_node(Stmt(ann_node(Block([])) loc)) loc
+
+
+        let build_for_condition e loc =
               match e with
               | Some(x) -> x
-              | None -> node (BLiteral(true)) loc
+              | None -> ann_node(BLiteral(true)) loc
 
-        let for_opt_incr e loc =
+        let build_for_iter e loc =
               match e with
-              | Some(x) -> node (Stmt(node (Expr(x)) loc)) loc
-              | None -> node (Stmt( node (Block([])) loc)) loc
+              | Some(x) -> ann_node(Stmt(ann_node(Expr(x)) loc)) loc
+              | None -> ann_node(Stmt( ann_node(Block([])) loc)) loc
 
 %}
 
@@ -74,11 +74,11 @@ program:
 ;
 
 topdec:
-| vl = varlist SEMI {node (VarDecList(vl)) $loc}
+| vl = varlist SEMI {ann_node (VarDecList(vl)) $loc}
 | t = typ i = ID LPAREN fs=separated_list(COMMA, genericparam) RPAREN b=block
-  {node (Fundecl({typ=t; fname=i; formals=fs; body=b})) $loc}
+  {ann_node (Fundecl({typ=t; fname=i; formals=fs; body=b})) $loc}
 | STRUCT i = ID LBRACE l=list(terminated(genericparam,SEMI)) RBRACE SEMI
-  {node (Structdecl({sname=i; fields=l})) $loc}
+  {ann_node (Structdecl({sname=i; fields=l})) $loc}
 ;
 
 typ:
@@ -109,70 +109,70 @@ vardesc:
 ;
 
 block:
-| LBRACE c=list(stmtordec) RBRACE { node (Block(c)) $loc}
+| LBRACE c=list(stmtordec) RBRACE { ann_node (Block(c)) $loc}
 ;
 
 stmtordec:
-| s = statement {node (Stmt(s)) $loc}
-| v = varlist SEMI {node (DecList(v)) $loc}
+| s = statement {ann_node (Stmt(s)) $loc}
+| v = varlist SEMI {ann_node (DecList(v)) $loc}
 ;
 statement: 
-| RETURN e = option(expr) SEMI {node (Return(e)) $loc}
-| e = expr SEMI {node (Expr(e)) $loc}
+| RETURN e = option(expr) SEMI {ann_node (Return(e)) $loc}
+| e = expr SEMI {ann_node (Expr(e)) $loc}
 | b = block {b}
-| DO s = statement WHILE LPAREN e = expr RPAREN SEMI {node (DoWhile(e, s)) $loc}
-| WHILE LPAREN e = expr RPAREN s=statement {node (While(e, s)) $loc}
+| DO s = statement WHILE LPAREN e = expr RPAREN SEMI {ann_node (DoWhile(e, s)) $loc}
+| WHILE LPAREN e = expr RPAREN s=statement {ann_node (While(e, s)) $loc}
 | FOR LPAREN init = option(expr) SEMI ext_cond = option(expr) SEMI incr=option(expr) RPAREN s=statement
 /* Desugar the for declaration into an equivalent while */
 {
   
-    node (Block([for_opt_init init $loc;
-              node (Stmt(
-                  node (While(for_opt_cond ext_cond $loc,
-                    node (Block([node (Stmt(s)) $loc;for_opt_incr incr $loc])) 
-                    $loc)) 
+    ann_node (Block([build_for_init init $loc;
+              ann_node (Stmt(
+                  ann_node (While(build_for_condition ext_cond $loc,
+                    ann_node (Block([ann_node(Stmt(s)) $loc;build_for_iter incr $loc]))
+                    $loc))
                   $loc)) 
               $loc;
               ])) 
     $loc
 }
 | IF LPAREN cond=expr RPAREN s=statement e=elseblock
-  {node (If(cond,s,e)) $loc}
+  {ann_node (If(cond,s,e)) $loc}
 ;
 
 elseblock:
 /* Give precedence to if without else */
-  | %prec NOELSE{node (Block([])) $loc}
+  | %prec NOELSE{ann_node (Block([])) $loc}
   | ELSE st=statement {st}
 ;
 
 expr:
 | r = rexpr {r}
-| l = lexpr {node (Access(l)) $loc}
+| l = lexpr {ann_node (Access(l)) $loc}
 ;
 
 lexpr:
-| i = ID {node (AccVar(i)) $loc}
+| i = ID {ann_node (AccVar(i)) $loc}
 | LPAREN l = lexpr RPAREN {l}
-| TIMES ADDRESS l=lexpr {node (AccDeref(node (Addr(l)) $loc)) $loc}
-| TIMES l = lexpr {node (AccDeref(node (Access(l)) $loc)) $loc}
-| l=lexpr LBRACKET e = expr RBRACKET { node (AccIndex(l,e)) $loc}
-| l = lexpr DOT f=ID {node (AccStructField(l,f)) $loc}
+| TIMES ADDRESS l=lexpr {ann_node (AccDeref(ann_node (Addr(l)) $loc)) $loc}
+| TIMES l = lexpr {ann_node (AccDeref(ann_node (Access(l)) $loc)) $loc}
+| l=lexpr LBRACKET e = expr RBRACKET { ann_node (AccIndex(l,e)) $loc}
+| l = lexpr DOT f=ID {ann_node (AccStructField(l,f)) $loc}
 ;
 
 rexpr:
 | a = aexpr {a}
-| SIZEOF LPAREN e=expr RPAREN{node (SizeOf(e)) $loc}
+| SIZEOF LPAREN e=expr RPAREN{ann_node (SizeOf(e)) $loc}
 | i = ID LPAREN p=separated_list(COMMA,expr) RPAREN
-  {node (Call(i,p)) $loc}
-| l = lexpr ASSIGN e = expr {node (Assign(l, e)) $loc}
-| u=unaryOp e=expr {node (UnaryOp(u, e)) $loc}
-| e=expr b=binOp e2=expr  {node (BinaryOp(b,e,e2)) $loc}
-| l=lexpr s=shortOp e = expr {node (ShortAssign(l,s, e )) $loc}
-| INCREMENT l = lexpr {node (UnaryOp(PreIncr,node (Access(l)) $loc )) $loc}
-| DECREMENT l = lexpr {node (UnaryOp(PreDecr,node (Access(l)) $loc )) $loc}
-| l  = lexpr INCREMENT {node (UnaryOp(PostIncr,node (Access(l)) $loc )) $loc}
-| l  = lexpr DECREMENT {node (UnaryOp(PostDecr,node (Access(l)) $loc )) $loc}
+  {ann_node (Call(i,p)) $loc}
+| l = lexpr ASSIGN e = expr {ann_node(Assign(l, e)) $loc}
+| u=unaryOp e=expr {ann_node (UnaryOp(u, e)) $loc}
+| e=expr b=binOp e2=expr  {ann_node (BinaryOp(b,e,e2)) $loc}
+| l=lexpr s=shortOp e = expr {ann_node (ShortAssign(l,s, e )) $loc}
+| INCREMENT l = lexpr {ann_node(UnaryOp(PreIncr,ann_node(Access(l)) $loc )) $loc}
+| DECREMENT l = lexpr {ann_node (UnaryOp(PreDecr,ann_node(Access(l)) $loc )) $loc}
+| l  = lexpr INCREMENT {ann_node (UnaryOp(PostIncr,ann_node(Access(l)) $loc )) $loc}
+| l  = lexpr DECREMENT {ann_node(UnaryOp(PostDecr,ann_node(Access(l)) $loc )) $loc}
 ;
 
 (*binop is inline in order to not have shift reduce conflicts*)
@@ -203,30 +203,30 @@ rexpr:
 | BNOT {BNot}
 
 %inline shortOp:
-|SHORTADD {Add} 
+|SHORTADD {Add}
 |SHORTDIV {Div}
 |SHORTMIN {Sub}
 |SHORTMUL {Mult}
 |SHORTMOD {Mod}
 ;
 aexpr:
-| i=INTEGER 
-  {node (ILiteral(i)) $loc}
-| c=CHARLIT 
-  {node (CLiteral(c)) $loc}
+| i=INTEGER
+  {ann_node(ILiteral(i)) $loc}
+| c=CHARLIT
+  {ann_node(CLiteral(c)) $loc}
 | f=FLOATLIT
-  {node (FLiteral(f)) $loc}
-| s=STRING 
-  {node (String(s)) $loc}
-| TRUE 
-  {node (BLiteral(true)) $loc}
-| FALSE 
-  {node (BLiteral(false)) $loc}
-| NULL 
-  {node (Null) $loc}
-| LPAREN r=rexpr RPAREN 
+  {ann_node(FLiteral(f)) $loc}
+| s=STRING
+  {ann_node(String(s)) $loc}
+| TRUE
+  {ann_node(BLiteral(true)) $loc}
+| FALSE
+  {ann_node(BLiteral(false)) $loc}
+| NULL
+  {ann_node(Null) $loc}
+| LPAREN r=rexpr RPAREN
   {r}
 | ADDRESS l=lexpr
-  {node (Addr(l)) $loc}
+  {ann_node(Addr(l)) $loc}
 
 
