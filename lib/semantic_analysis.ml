@@ -284,7 +284,7 @@ let var_decl_type_check symbols location (t, i) =
   | DuplicateEntry i -> raise @@ Semantic_error (location, "error: redefinition of " ^ i)
 ;;
 
-(*
+(**
    Checks that a statement is well typed
    @param symbols The current symbol table
    @param ftype The return type of the function

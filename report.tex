@@ -1,0 +1,222 @@
+
+\documentclass{article}
+\usepackage{graphicx} % Required for inserting images
+\usepackage{listings}
+\usepackage{adjustbox}
+\title{compilers report}
+\author{Giulio Piva}
+\date{November 2023}
+
+\begin{document}
+
+\maketitle
+
+
+\section{Parser}
+The following is the grammar of microc:
+\begin{adjustbox}{margin=-7cm 0cm 0cm 0cm}
+\begin{lstlisting}[language=C, basicstyle=\ttfamily\fontsize{8pt}{14pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
+Program::= Topdecl* EOF
+
+Topdecl::= Varlist; | Fundecl | Structdecl ";"
+
+Varlist::= Typ Vardecl*
+
+Vardecl::= Vardesc "=" Expr
+
+Vardesc::= ID | "*" Vardesc | "(" Vardesc ")"
+| Vardesc "[""]" | Vardesc "[" INT "]"
+
+Fundecl::= Typ ID "(" ((genericparam ",")* genericparam)? ")" Block
+
+Structdecl::= "struct" ID "{" (genericparam ";")* "}"
+
+genericparam:: Typ Vardesc
+
+Block::= "{" (Stmt | Vardecl ";" | Vardecl "=" Expr ";") "}"
+
+Typ::= "int" | "char" | "void"
+| "bool" | "float" | "struct" ID
+
+Stmt::= "return" Expr ";" | Expr ";"
+| Block | "while" "(" Expr ")" Stmt
+| "for" "(" Expr? ";" Expr? ";" Expr? ")" Stmt
+| "do" Stmt "while" "(" Expr ")" ";"
+| "if" "(" Expr ")" Stmt "else" Stmt
+| "if" "(" Expr ")" Stmt
+
+Expr::= RExpr | LExpr
+
+LExpr::= ID | "(" LExpr ")"
+| "*" LExpr | "*" AExpr
+| LExpr "[" Expr "]"
+| LExpr "." ID
+
+RExpr::= AExpr | "sizeof" "(" Expr ")"
+| ID "(" ((Expr ",") Expr)? ")"
+| LExpr "=" Expr| Lexpr Shortop Expr | "!" Expr
+| "-" Expr | "~" Expr|Expr BinOp Expr| "++" Lexpr
+| "--" Lexpr | Lexpr "++" | Lexpr "--"
+
+Bin0p::= "+" | "-" | "*" | "%" | "/"
+| "&&" | "||" | "<" |">""<=" | ">="
+| "==" | "!=" | "&" | "|" | "^"| ">>" | "<<"
+
+Shortop ::= "+=" | "-=" | "*=" | "/=" | "&="
+
+AExpr ::= INT | CHAR | BOOL | FLOAT | STRING | "NULL"
+| "(" RExpr ")" | "&" LExpr
+\end{lstlisting}
+\end{adjustbox}
+It has been modified to accomodate the following features:
+\begin{itemize}
+    \item multiple variable declaration and initialization: multiple variables can be declared and initialized in a single statement
+    like the following: \textbf{int a = 1, b = 2, c = 3;}. However, since function parameters and struct fields don't support initialization,
+    two different rules have been created: varlist and genericparam. The first one is used for variable declarations,
+    while the latter is used for declaring function parameters and struct fields.
+    \item sizeof operator. It is not possible to use types as parameter of the sizeof operator, but only expressions.
+    \item bitwise operators
+    \item short assignment operators
+    \item Struct declaration and access
+    \item do-while loop
+    \item String literals
+    \item Floating point numbers
+\end{itemize}
+\subsection*{Grammar disambiguation}
+\begin{itemize}
+  \item dangling else: give precedence to if statement with an empty else branch
+  \item Binary operators: inline the BinOp rule
+  \item Bitwise operators
+\end{itemize}
+
+\section{Symbol Table}
+The symbol table has been implemented as a list of hash tables to resemble a hierarchical scope structure.
+Therefore, the head of the list represents the local scope, whereas the tail represents the global scope.
+For convenience and efficiency, three different symbol tables have been created for storing information about variables, functions and structs.
+Those three tables are then composed into a single object which is carried throughout the sematic analysis and code generation phases.
+The type signature of a symbol list is the following:
+\begin{lstlisting}
+type 'a t = (string, 'a) Hashtbl.t list
+\end{lstlisting}
+
+The type signature of the context object is the following:
+\begin{lstlisting}
+type context = {
+  fun_symbols : 'a Symbol_table.t;
+  var_symbols : 'b Symbol_table.t;
+  struct_symbols : 'c Symbol_table.t;
+}
+\end{lstlisting}
+
+The type of context assumes different values during the semantic analysis and code generation phases, which will explained in the following sections.
+\section{Semantic Analysis}
+The aim of the semantic analysis of a microc program is to check the well-typedness of the program.
+This phase recursively traverses the AST and checks that the statements of the programs satisfy the rules of the type system.
+The relevant functions are the following:
+
+\begin{itemize}
+  \item \textbf{fundecl\_type\_check}
+  \item \textbf{structdecl\_type\_check}
+  \item \textbf{var\_type\_check}
+  \item \textbf{stmt\_type\_check}
+  \item \textbf{stmtordec\_type\_check}
+\end{itemize}
+All of these leverage the following other functions to obtain the type of their arguments and expressions:
+\begin{itemize}
+  \item \textbf{expr\_type}
+  \item \textbf{access\_type}
+  \item \textbf{unaryexp\_type}
+  \item \textbf{binaryexp\_type}
+\end{itemize}
+
+\subsection*{Semantic analysis Symbol Table}
+The type signature of the symbol table for this phase is the following:
+
+\begin{lstlisting}[basicstyle=\ttfamily\fontsize{9pt}{4pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
+type context =
+  { fun_symbols : (Location.code_pos * fun_decl) Symbol_table.t
+  ; var_symbols : (Location.code_pos * typ) Symbol_table.t
+  ; struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t
+  }
+\end{lstlisting}
+Location is always saved to allow for better error reporting.
+\begin{itemize}
+  \item
+  \end{itemize}
+
+\subsection*{Additional rules}
+\paragraph*{Type unification}
+   There are cases in which in which types should not directly be tested to be equal, but rather they should be checked if compatible.
+   A helper function \textbf{match\_types} is used to implement the two following type checking rules:
+    \begin{itemize}
+        \item Variable initialization and assignment: Pointer variables can be assigned the value NULL
+        \item unsized arrays are admitted as type of function parameters, i.e. declarations in the form of a[] or a[][2][2].
+    \end{itemize}
+
+\paragraph*{Global variable initialization}
+Global variables can be initialized only with compile-time defined constants.
+
+\paragraph*{String initialization}
+Strings are implemented as arrays of characters , but arrays cannot neither be initialized nor assigned in microc.
+Therefore, a special case has been added when checking the declaration of an array of characters to allow string declarations.
+The function which handles string initialization is \textbf{init\_string}.
+
+\paragraph*{Independent-order declarations}
+Functions and structs can be declared in any order and can be used before their declaration.
+This entails a first scan of the program to add the signatures to the
+symbol table. The bodies instead are checked in the subsequent scan.
+
+\paragraph*{deadcode detection}
+There different forms of deadcode, but the one chosen to implement for this project is the one
+that detects code after a return statement.
+To implement this analysis, a boolean flag has been added to the return type of \textbf{stmt\_type\_check} and \textbf{stmtordec\_type\_check}
+to signal whether the scan should continue or not, that is if a return statement has been found.
+In case of instructions after a return statement, an exception is raised.
+
+\paragraph*{Runtime support functions}
+
+
+\section{Code Generation}
+The code generation phase is responsible for generating the LLVM bitcode of the program.
+As before, the code generation phase recursively traverses the AST and generates the bitcode for each statement, mapping
+each statement to the corresponding LLVM operation.
+The relevant functions are the following:
+\begin{itemize}
+  \item \textbf{codegen\_fundecl}: maps a function declaration to a LLVM function
+  \item \textbf{codegen\_structdecl}:
+  \item \textbf{codegen\_stmt}
+  \item \textbf{codegen\_access}
+  \item \textbf{codegen\_un\_op}
+  \item \textbf{codegen\_bin\_op}
+\end{itemize}
+
+\subsection*{Code generation Symbol Table}
+\begin{lstlisting}
+type context =
+  { fun_symbols : L.llvalue Symbol_table.t
+  ; var_symbols : L.llvalue Symbol_table.t
+  ; struct_symbols : (L.lltype * string list) Symbol_table.t
+  }
+\end{lstlisting}
+
+\subsection*{Struct and Function generation}
+As for the semantic analysis, Struct are generated beforehand to allow for their use before their declaration.
+However, this time the struct are fully generated in advance, and not only their signature. This is done because
+when using a struct object to access a field, an address must exist in LLVM to access it.
+For a function declaration instead, its signature generation is sufficient to allow for its call.
+
+\subsection*{Array parameters}
+An array parameter is converted to a pointer. This was done either to resemble the C language practice
+and to support the unsized array as parameter.
+However this mechanism introduces some additional checks when accessing an array in the code.
+For instance, let's consider the following code:
+\begin{lstlisting}[basicstyle=\ttfamily\fontsize{8pt}{14pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
+int foo(int a[]) {
+  int b[2];
+  b = a[0];
+  return b;
+}
+\end{lstlisting}
+At llvm level, \textbf{a} will have a pointer as type, whereas \textbf{b} will array type.
+Therefore, when accessing an array, the two cases must be handled accordingly.
+\end{document}

@@ -1,5 +1,4 @@
 _build/
-report.tex
 *.aux
 *.log
 *.fls

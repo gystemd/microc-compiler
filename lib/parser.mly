@@ -48,8 +48,8 @@
 %nonassoc ELSE
 
 %right ASSIGN SHORTADD SHORTDIV SHORTMIN SHORTMUL SHORTMOD
-%left OR BXOR BNOT LSHIFT RSHIFT
-%left BOR
+%left BXOR BNOT LSHIFT RSHIFT BOR
+%left OR
 %left AND
 %left EQ NEQ
 %nonassoc GT LT GEQ LEQ
@@ -69,19 +69,15 @@
 
 /* Grammar specification */
 
-
-
 program:
   | p = list(topdec) EOF     {Prog p}
 ;
 
-
-
 topdec:
 | vl = varlist SEMI {node (VarDecList(vl)) $loc}
-| t = typ i = ID LPAREN fs=separated_list(COMMA, funparam) RPAREN b=block
+| t = typ i = ID LPAREN fs=separated_list(COMMA, genericparam) RPAREN b=block
   {node (Fundecl({typ=t; fname=i; formals=fs; body=b})) $loc}
-| STRUCT i = ID LBRACE l=list(terminated(funparam,SEMI)) RBRACE SEMI
+| STRUCT i = ID LBRACE l=list(terminated(genericparam,SEMI)) RBRACE SEMI
   {node (Structdecl({sname=i; fields=l})) $loc}
 ;
 
@@ -94,7 +90,7 @@ typ:
   | STRUCT i = ID {TypS(i)}
 ;
 
-funparam:
+genericparam:
 | t = typ v=vardesc {((fst v) t, snd v)}
 varlist:
 /* Unwraps the type declarations, applying the final function to t */
@@ -111,8 +107,6 @@ vardesc:
 | LPAREN v = vardesc RPAREN {v}
 | v = vardesc LBRACKET n = option(INTEGER) RBRACKET {((fun t -> fst v (TypA(t,n))), snd v) }
 ;
-
-
 
 block:
 | LBRACE c=list(stmtordec) RBRACE { node (Block(c)) $loc}

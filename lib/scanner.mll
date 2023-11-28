@@ -6,7 +6,7 @@
 
     let raise_lexer_error buf err=
         let position = Location.to_lexeme_position buf in
-        raise (Lexing_error(position, err))
+        raise @@ Lexing_error(position, err)
 
     let create_hashtable size init =
         let table = Hashtbl.create size in
@@ -14,7 +14,7 @@
         table
 
 
-    let keywords = create_hashtable 15 [
+    let keywords = create_hashtable 16 [
         ("if", IF);
         ("return",RETURN);
         ("else", ELSE);
@@ -29,6 +29,7 @@
         ("false",FALSE);
         ("do",DO);
         ("float",FLOAT);
+        ("sizeof",SIZEOF);
         ("struct",STRUCT)
     ]
 }
@@ -45,7 +46,6 @@ let ws = [' ' '\t']+
 rule next_token = parse
     | ws+       {next_token lexbuf}
     | newline {Lexing.new_line lexbuf; next_token lexbuf}
-    | "sizeof" {SIZEOF}
     | id as word
         {
           match Hashtbl.find_opt keywords word with
