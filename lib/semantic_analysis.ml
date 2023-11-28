@@ -47,7 +47,7 @@ let init_string location var_symbols arr_length id string =
            ( location
            , "Null terminated string length is "
              ^ (length + 1 |> string_of_int)
-             ^ " but array was declared with size "
+             ^ " but array has size "
              ^ (arr_length |> string_of_int) )
     else
       Symbol_table.add_entry id (location, TypA (TypC, Some arr_length)) var_symbols
@@ -75,7 +75,7 @@ let rec compare_types location t1 t2 =
   match t1, t2 with
   | TypA (t1, Some v), TypA (t2, Some v2) when v = v2 -> compare_types location t1 t2
   | TypA (_, Some v), TypA (_, Some v2) when v <> v2 ->
-    raise @@ Semantic_error (location, "Array size must be the same")
+    raise @@ Semantic_error (location, "error: Array size mismatch")
   | TypA (t1, None), TypA (t2, _) | TypA (t1, _), TypA (t2, None) ->
     compare_types location t1 t2
   | TypP _, TypNull -> true
@@ -129,7 +129,7 @@ let binaryexp_type location op et1 et2 =
          ( location
          , "Operator "
            ^ string_of_binop op
-           ^ " is not defined when the operands have type "
+           ^ " is not defined for operands of type "
            ^ string_of_type et1
            ^ " and "
            ^ string_of_type et2 )
@@ -225,11 +225,11 @@ let rec expr_type symbols expr =
                      ( expr.loc
                      , "Function "
                        ^ f.fname
-                       ^ " expects a parameter with type "
+                       ^ " requires a parameter of type "
                        ^ string_of_type ft
-                       ^ " but an expression with type "
+                       ^ " but an expression of type "
                        ^ string_of_type pt
-                       ^ " was passed" ))
+                       ^ " is provided" ))
             formals_types
             params_types;
           f.typ)
@@ -245,7 +245,7 @@ and access_type symbols a =
   | AccDeref expr ->
     (match expr_type symbols expr with
      | TypP t -> t
-     | _ -> raise @@ Semantic_error (a.loc, "Trying to dereference a non pointer"))
+     | _ -> raise @@ Semantic_error (a.loc, "cannot dereference non-pointer"))
   | AccIndex (a, expr) ->
     (match expr_type symbols expr with
      | TypI ->
@@ -266,7 +266,7 @@ and access_type symbols a =
                   (a.loc, "Field " ^ field ^ " does not exists in structure " ^ s.sname))
         | None -> raise @@ Semantic_error (a.loc, "Structure " ^ s ^ " does not exists"))
      | _ ->
-       raise @@ Semantic_error (a.loc, "Trying to access field of non structure variable"))
+       raise @@ Semantic_error (a.loc, "cannot access field of non-struct type"))
 ;;
 
 (** Checks if a variable declaration is well typed
@@ -329,7 +329,7 @@ let rec stmt_type_check symbols ftype statement =
       List.fold_left
         (fun acc stmtordec ->
           if not acc
-          then raise @@ Semantic_error (stmtordec.loc, "instruction after return found")
+          then raise @@ Semantic_error (stmtordec.loc, "instructions after return found")
           else acc && stmtordec_type_check new_scope ftype stmtordec)
         true
         stmts
@@ -356,12 +356,11 @@ and stmtordec_type_check symbols ftype sordec =
            let et = expr_type symbols e in
            (match et with
             | TypA (_, _) ->
-              (* Array initializers are disallowed *)
-              raise @@ Semantic_error (loc, "Array is not a valid value initializer")
+              raise @@ Semantic_error (loc, "Cannot initialize an array with an expression")
             | _ ->
               if compare_types loc t et
               then ()
-              else raise @@ Semantic_error (loc, "Value of different type")))
+              else raise @@ Semantic_error (loc, "Mismatch type in variable initialization expression")))
     in
     List.iter (check_var sordec.loc) l;
     true
@@ -374,16 +373,15 @@ and stmtordec_type_check symbols ftype sordec =
     @param typ The type of the parameter
     @param id The name of the parameter *)
 let parameter_type_check symbols location (typ, id) =
-  (* Function parameters are treated slightly different from normal variables. We only forbid void variables, but unsized arrays are allowed *)
   match typ with
-  | TypV -> raise @@ Semantic_error (location, "Illegal void parameter " ^ id)
+  | TypV -> raise @@ Semantic_error (location, "Cannot declare void param" ^ id)
   | _ ->
     check_type_declaration symbols.struct_symbols location typ;
     (try Symbol_table.add_entry id (location, typ) symbols.var_symbols |> ignore with
      | DuplicateEntry i ->
        raise
        @@ Semantic_error
-            (location, "Parameter " ^ i ^ " already defined in current symbols"))
+            (location, "Parameter " ^ i ^ " already defined in current scope"))
 ;;
 
 (** Checks that a function is well typed.
@@ -393,7 +391,7 @@ let parameter_type_check symbols location (typ, id) =
 let func_type_check func symbols location =
   match func.typ with
   | TypA (_, _) | TypP _ | TypNull ->
-    raise @@ Semantic_error (location, "Illegal function type " ^ string_of_type func.typ)
+    raise @@ Semantic_error (location, "return type not allowed" ^ string_of_type func.typ)
   | _ ->
     let new_scope =
       { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }

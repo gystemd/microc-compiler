@@ -21,16 +21,14 @@ type context =
   ; struct_symbols : (L.lltype * string list) Symbol_table.t
   }
 
-let rec build_llvm_type structs = function
+let rec lltype_of_typ structs = function
   | TypI -> int_type
   | TypF -> float_type
   | TypC -> char_type
   | TypB -> bool_type
   | TypV -> void_type
-  | TypA (t, None) | TypP t ->
-    (*wrap the array with a pointer to recognize that it is unsized *)
-    L.pointer_type (build_llvm_type structs t)
-  | TypA (t, Some v) -> L.array_type (build_llvm_type structs t) v
+  | TypA (t, None) | TypP t -> L.pointer_type (lltype_of_typ structs t)
+  | TypA (t, Some v) -> L.array_type (lltype_of_typ structs t) v
   | TypNull -> L.pointer_type void_type
   | TypS n ->
     (match Symbol_table.lookup n structs with
@@ -43,12 +41,12 @@ let add_rt_support llmodule symbols =
   let params_to_array params =
     params
     |> List.map fst
-    |> List.map (build_llvm_type symbols.struct_symbols)
+    |> List.map (lltype_of_typ symbols.struct_symbols)
     |> Array.of_list
   in
   let fun_type f =
     L.function_type
-      (build_llvm_type symbols.struct_symbols f.typ)
+      (lltype_of_typ symbols.struct_symbols f.typ)
       (params_to_array f.formals)
   in
   Rt_support.rt_functions
@@ -58,10 +56,11 @@ let add_rt_support llmodule symbols =
     |> ignore)
 ;;
 
+
 let normalize_expr e t =
   if L.is_undef e
   then L.const_pointer_null t
-  else e (*helper function to handle situations where null appears *)
+  else e
 ;;
 
 let add_terminator builder after =
@@ -69,10 +68,6 @@ let add_terminator builder after =
   if Option.is_none terminator then after builder |> ignore else ()
 ;;
 
-(*
-   For binary and unary  operators, we check that the operands are of the correct type and return the correct instruction builder.
-   We exploit partial functions to return a new function that takes the generate subexpressions and build the final one.
-*)
 let codegen_unop = function
   | t, Neg when t = int_type -> L.build_neg
   | t, Neg when t = float_type -> L.build_fneg
@@ -121,14 +116,6 @@ let codegen_bin_op = function
   | t1, t2, Equal when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Eq
   | t1, t2, Neq when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Ne
   | _ -> raise @@ Codegen_error "Type mismatch between operands"
-;;
-
-(* Uses const instructions when dealing with global expressions *)
-let codegen_const_op = function
-  | t, Neg when t = int_type -> L.const_neg
-  | t, Neg when t = float_type -> L.const_fneg
-  | t, Not when t = bool_type -> L.const_not
-  | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
 let codegen_const_binop = function
@@ -189,7 +176,6 @@ let rec codegen_expr symbols builder expr =
   | CLiteral c -> L.const_int char_type (Char.code c)
   | String s -> L.build_global_string (s ^ "\000") "" builder
   | Access a ->
-    (*access always returns an address so we load the value *)
     let a_val = codegen_access symbols builder a in
     L.build_load a_val "" builder
   | Assign (a, e) ->
@@ -228,7 +214,7 @@ let rec codegen_expr symbols builder expr =
     build_unary_incr_or_decr builder op e_val
   | UnaryOp (u, e) ->
     let e_val = codegen_expr symbols builder e in
-    (*gets the correct binary expression and builds the actual instruction *)
+    (*codegen_bin_op returns a partial function; then we apply the operand*)
     codegen_unop (L.type_of e_val, u) e_val "" builder
   | BinaryOp (b, e1, e2) ->
     let e1_val, e2_val =
@@ -242,7 +228,7 @@ let rec codegen_expr symbols builder expr =
         v1, L.const_pointer_null (L.pointer_type (L.element_type t1))
       | e1v, e2v -> e1v, e2v
     in
-    (*gets the correct binary expression and builds the actual instruction *)
+    (*codegen_bin_op returns a partial function; then we apply the two operands*)
     codegen_bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
   | Call (func, params) ->
     let actual_f =
@@ -293,7 +279,7 @@ and codegen_access symbols builder a =
        (match at |> L.element_type |> L.classify_type with
         (*Unsized array case: dereference the first element to get the sized array*)
         | L.TypeKind.Array -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder
-        (*non-array pointer case*)
+        (*"normal" pointer *)
         | _ ->
           let load_val = Llvm.build_load a_val "" builder in
           Llvm.build_in_bounds_gep load_val [| ind |] "" builder)
@@ -304,12 +290,11 @@ and codegen_access symbols builder a =
     let sname = L.type_of a_val |> L.element_type |> L.struct_name in
     (match Symbol_table.lookup (Option.get sname) symbols.struct_symbols with
      | Some (_, fields) ->
-       (*checks that the given field exists and gets its index *)
        let to_index = List.mapi (fun i m -> m, i) fields in
        let field_pos =
          match List.assoc_opt f to_index with
          | Some index -> index
-         | None -> raise @@ Codegen_error ("Undefined struct member " ^ f)
+         | None -> raise @@ Codegen_error ("Undefined struct field" ^ f)
        in
        L.build_struct_gep a_val field_pos "" builder
      | None -> raise @@ Codegen_error ("Undefined struct " ^ Option.get sname))
@@ -317,8 +302,6 @@ and codegen_access symbols builder a =
 
 let rec codegen_stmt fdef symbols builder stmt =
   let build_while choose_block condition body =
-    (*helper functions that builds while loops and doWhile.
-      Choose_block gets the first block that must be executed between the loop body and the loop condition check *)
     let cond_block = L.append_block llcontext "test" fdef in
     let body_block = L.append_block llcontext "while_body" fdef in
     let cont_block = L.append_block llcontext "cont" fdef in
@@ -362,24 +345,22 @@ let rec codegen_stmt fdef symbols builder stmt =
       let v = normalize_expr e_val (L.type_of fdef |> L.pointer_type) in
       v |> L.build_ret |> add_terminator builder)
   | While (e, s) -> build_while fst e s
-  (*condition is the first instruction *)
   | DoWhile (e, s) -> build_while snd e s
-(*body is the first instruction *)
 
 and codegen_stmtordec fdef symbols builder st =
   match st.node with
   | DecList l ->
     let var_gen symbols builder (t, i, init) =
-      let var_v = L.build_alloca (build_llvm_type symbols.struct_symbols t) i builder in
+      let var_v = L.build_alloca (lltype_of_typ symbols.struct_symbols t) i builder in
       let get_init_val e =
         let e_val = codegen_expr symbols builder e in
         if L.type_of e_val
            |> L.element_type
            |> L.classify_type
-           = L.TypeKind.Array (*string literal *)
+           = L.TypeKind.Array (*it's a string *)
         then e_val
         else (
-          let value = normalize_expr e_val (build_llvm_type symbols.struct_symbols t) in
+          let value = normalize_expr e_val (lltype_of_typ symbols.struct_symbols t) in
           L.build_store value var_v builder |> ignore;
           var_v)
       in
@@ -394,8 +375,8 @@ and codegen_stmtordec fdef symbols builder st =
 let codegen_param symbols builder (t, id) param =
   let tp =
     match t with
-    | TypA (t1, _) -> build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
-    | _ -> build_llvm_type symbols.struct_symbols t
+    | TypA (t1, _) -> lltype_of_typ symbols.struct_symbols t1 |> L.pointer_type
+    | _ -> lltype_of_typ symbols.struct_symbols t
   in
   let l = L.build_alloca tp "" builder in
   (*store function parameters *)
@@ -403,17 +384,13 @@ let codegen_param symbols builder (t, id) param =
   L.build_store param l builder |> ignore
 ;;
 
-(*
-   - Generate parameters
-   - Generate function body
-   - Add terminator when  no return is present
-*)
 let codegen_func symbols func =
   let local_scope =
     { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }
   in
+  (* find the signature generated in the first scan *)
   let f = Symbol_table.lookup func.fname symbols.fun_symbols |> Option.get in
-  let ret_type = build_llvm_type symbols.struct_symbols func.typ in
+  let ret_type = lltype_of_typ symbols.struct_symbols func.typ in
   let f_builder = L.entry_block f |> L.builder_at_end llcontext in
   List.iter2
     (codegen_param local_scope f_builder)
@@ -425,7 +402,13 @@ let codegen_func symbols func =
   | _ -> add_terminator f_builder (ret_type |> L.undef |> L.build_ret)
 ;;
 
-(*when no return is present, the function returns an undefined value *)
+(* used for global variables *)
+let codegen_const_op = function
+  | t, Neg when t = int_type -> L.const_neg
+  | t, Neg when t = float_type -> L.const_fneg
+  | t, Not when t = bool_type -> L.const_not
+  | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
+;;
 
 let rec codegen_global_expr structs t expr =
   match expr.node with
@@ -434,7 +417,7 @@ let rec codegen_global_expr structs t expr =
   | CLiteral c -> Char.code c |> L.const_int char_type
   | BLiteral b -> if b then llvm_true else llvm_false
   | String s -> L.const_stringz llcontext s
-  | Null -> build_llvm_type structs t |> L.const_pointer_null
+  | Null -> lltype_of_typ structs t |> L.const_pointer_null
   | UnaryOp (uop, e1) ->
     let a = codegen_global_expr structs t e1 in
     let t1 = L.type_of a in
@@ -450,7 +433,7 @@ let rec codegen_global_expr structs t expr =
 let codegen_global_variable llmodule symbols (t, i) init =
   let var_init =
     Option.fold
-      ~none:(L.undef (build_llvm_type symbols.struct_symbols t))
+      ~none:(L.undef (lltype_of_typ symbols.struct_symbols t))
         (*undefined default initial value *)
       ~some:(codegen_global_expr symbols.struct_symbols t)
       init
@@ -473,16 +456,16 @@ let codegen_topdecl llmodule symbols n =
 let add_fun_sign llmodule symbols node =
   match node.node with
   | Fundecl func ->
-    let ret_type = build_llvm_type symbols.struct_symbols func.typ in
+    let ret_type = lltype_of_typ symbols.struct_symbols func.typ in
     let formals_types =
       func.formals
       |> List.map fst
       |> List.map (fun t ->
         match t with
         | TypA (t1, _) ->
-          (*all arrays become pointers *)
-          build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
-        | _ -> build_llvm_type symbols.struct_symbols t)
+          (*transform array into a pointer*)
+          lltype_of_typ symbols.struct_symbols t1 |> L.pointer_type
+        | _ -> lltype_of_typ symbols.struct_symbols t)
     in
     let f_type = L.function_type ret_type (Array.of_list formals_types) in
     let f = L.define_function func.fname f_type llmodule in
@@ -500,7 +483,7 @@ let codegen_struct symbols node =
       symbols.struct_symbols
     |> ignore;
     let fields_t =
-      s.fields |> List.map (fun (t, _) -> build_llvm_type symbols.struct_symbols t)
+      s.fields |> List.map (fun (t, _) -> lltype_of_typ symbols.struct_symbols t)
     in
     L.struct_set_body named_s (Array.of_list fields_t) false |> ignore
   | _ -> ()
@@ -515,9 +498,9 @@ let to_llvm_module (Prog topdecls) =
     ; struct_symbols = Symbol_table.empty_table ()
     }
   in
-  (* Generate structs and function signatures in advance
-     to allow independent-order declarations *)
+  (*first generate all the structs*)
   List.iter (codegen_struct init_scope) topdecls;
+  (* then generate all functions signatures *)
   List.iter (add_fun_sign llmodule init_scope) topdecls;
   add_rt_support llmodule init_scope;
   List.iter (codegen_topdecl llmodule init_scope) topdecls;
