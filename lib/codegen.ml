@@ -392,7 +392,11 @@ and codegen_stmtordec fdef symbols builder st =
 ;;
 
 let codegen_param symbols builder (t, id) param =
-  let tp = build_llvm_type symbols.struct_symbols t in
+  let tp =
+    match t with
+    | TypA (t1, _) -> build_llvm_type symbols.struct_symbols t1 |> L.pointer_type
+    | _ -> build_llvm_type symbols.struct_symbols t
+  in
   let l = L.build_alloca tp "" builder in
   (*store function parameters *)
   Symbol_table.add_entry id l symbols.var_symbols |> ignore;
@@ -511,8 +515,8 @@ let to_llvm_module (Prog topdecls) =
     ; struct_symbols = Symbol_table.empty_table ()
     }
   in
-  (* Preventively add all the struct and function signatures
-     to allow independent-declarations *)
+  (* Generate structs and function signatures in advance
+     to allow independent-order declarations *)
   List.iter (codegen_struct init_scope) topdecls;
   List.iter (add_fun_sign llmodule init_scope) topdecls;
   add_rt_support llmodule init_scope;
