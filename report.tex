@@ -26,11 +26,11 @@ Vardecl::= Vardesc "=" Expr
 Vardesc::= ID | "*" Vardesc | "(" Vardesc ")"
 | Vardesc "[""]" | Vardesc "[" INT "]"
 
-Fundecl::= Typ ID "(" ((genericparam ",")* genericparam)? ")" Block
+Fundecl::= Typ ID "(" ((decl",")* decl)? ")" Block
 
-Structdecl::= "struct" ID "{" (genericparam ";")* "}"
+Structdecl::= "struct" ID "{" (decl";")* "}"
 
-genericparam:: Typ Vardesc
+decl:: Typ Vardesc
 
 Block::= "{" (Stmt | Vardecl ";" | Vardecl "=" Expr ";") "}"
 
@@ -291,7 +291,7 @@ when using a struct object to access a field, an address must exist in LLVM to a
 For a function declaration instead, its signature generation is sufficient to allow for its call.
 
 \subsection*{Array parameters}
-An array parameter is converted to a pointer. This was done either to resemble the C language practice
+Array parameters are converted to pointers. This was done either to resemble the C language practice
 and to support the unsized array as parameter.
 However this mechanism introduces some additional checks when accessing an array in the code.
 For instance, let's consider the following code:
@@ -308,4 +308,4 @@ Therefore, when accessing an array, the two cases must be handled accordingly.
 
 \subsection*{Global variable initialization}
 Since the initialization of global variables can be performed only with compile-time defined constants,
-for this kind of variables I employed operations on constants. 
+for this kind of variables on operations on constants are employed.
