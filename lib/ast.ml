@@ -78,7 +78,7 @@ and access_node =
   | AccVar of identifier (* Variable access        x *)
   | AccDeref of expr (* Pointer dereferencing  *p *)
   | AccIndex of access * expr (* Array indexing         a[e] *)
-  | AccStructField of access * identifier
+  | AccStruct of access * identifier
 [@@deriving show]
 
 and stmt = stmt_node annotated_node

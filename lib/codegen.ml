@@ -148,12 +148,11 @@ let build_pre_op builder op value =
     | (PreIncr | PostIncr), t when t = int_type -> L.build_add llvm_one
     | (PreIncr | PostIncr), t when t = float_type -> L.build_fadd llvm_one
     | (PreDecr | PostDecr), t when t = int_type -> Fun.flip L.build_sub llvm_one
-    | (PreDecr | PostDecr), t when t = float_type ->
-      Fun.flip L.build_fsub llvm_onef (*Flip needed so a-- becomes a - 1 and not 1 - a *)
+    | (PreDecr | PostDecr), t when t = float_type -> Fun.flip L.build_fsub llvm_onef
     | _ -> raise @@ Codegen_error ("Invalid argument for operator " ^ show_uop op)
   in
   let apply_op = inc_op (op, L.element_type (L.type_of value)) in
-  (*save the value for pre increment/decrement statements*)
+  (*save the value before the operation, to return in case it's a post operator*)
   let before = L.build_load value "" builder in
   let after = apply_op before "" builder in
   L.build_store after value builder |> ignore;
@@ -195,13 +194,11 @@ let rec codegen_expr symbols builder expr =
       | _ -> L.size_of t
     in
     L.build_trunc size int_type "" builder
-  | UnaryOp (((PreIncr | PostIncr | PreDecr | PostDecr) as op), e) ->
+  | UnaryOp (((PreIncr | PostIncr | PreDecr | PostDecr) as op), expr) ->
     let access_e =
-      match e.node with
-      | Access a ->
-        a (*we defer loading the value, to correctly use the abbreviated operator *)
-      | _ -> assert false
-      (*Abbreviated increments are only defined with access expression *)
+      match expr.node with
+      | Access a -> a
+      | _ -> raise @@ Codegen_error "Invalid argument for abbreviated operator"
     in
     let e_val = codegen_access symbols builder access_e in
     build_pre_op builder op e_val
@@ -278,7 +275,7 @@ and codegen_access symbols builder a =
           Llvm.build_in_bounds_gep load_val [| ind |] "" builder)
      (* non-param array*)
      | _ -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder)
-  | AccStructField (a, f) ->
+  | AccStruct (a, f) ->
     let a_val = codegen_access symbols builder a in
     let sname = L.type_of a_val |> L.element_type |> L.struct_name in
     (match Symbol_table.lookup (Option.get sname) symbols.struct_symbols with
@@ -485,17 +482,17 @@ let codegen_struct symbols node =
 let to_llvm_module (Prog topdecls) =
   let module_name = "microc_module" in
   let llmodule = L.create_module llcontext module_name in
-  let init_scope =
+  let init_context =
     { fun_symbols = Symbol_table.empty_table ()
     ; var_symbols = Symbol_table.empty_table ()
     ; struct_symbols = Symbol_table.empty_table ()
     }
   in
   (*first generate all the structs*)
-  List.iter (codegen_struct init_scope) topdecls;
+  List.iter (codegen_struct init_context) topdecls;
   (* then generate all functions signatures *)
-  List.iter (add_fun_sign llmodule init_scope) topdecls;
-  add_rt_support llmodule init_scope;
-  List.iter (codegen_topdecl llmodule init_scope) topdecls;
+  List.iter (add_fun_sign llmodule init_context) topdecls;
+  add_rt_support llmodule init_context;
+  List.iter (codegen_topdecl llmodule init_context) topdecls;
   llmodule
 ;;

@@ -156,7 +156,7 @@ lexpr:
 | TIMES ADDRESS l=lexpr {ann_node (AccDeref(ann_node (Addr(l)) $loc)) $loc}
 | TIMES l = lexpr {ann_node (AccDeref(ann_node (Access(l)) $loc)) $loc}
 | l=lexpr LBRACKET e = expr RBRACKET { ann_node (AccIndex(l,e)) $loc}
-| l = lexpr DOT f=ID {ann_node (AccStructField(l,f)) $loc}
+| l = lexpr DOT f=ID {ann_node (AccStruct(l,f)) $loc}
 ;
 
 rexpr:
