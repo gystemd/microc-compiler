@@ -11,13 +11,28 @@
 
 \maketitle
 
+\paragraph{Instructions for compiling and running tests}
+To compile a microc program, you can run the script \textbf{test\_program.sh microc\_file}.
+To run a suite of tests, you can run the script \textbf{test\_all.sh test\_folder}.
 
-\section{Parser}
+\begin{lstlisting}
+
+\end{lstlisting}
+\section{Frontend}
+The frontend of the compiler is responsible for parsing the input program and generating the AST.
+It has been implemented using the Menhir parser generator and the ocamllex lexer generator.
+ocammlllex uses regular expressions to define the patterns for recognizing tokens in the source code.
+Menhir, on the other hand, processes the stream of tokens produced by the lexer and
+constructs an abstract syntax tree associating to each rule a snipped of code to executed.
+These two components are then combined into a parser engine in the file \textbf{parsing.ml}, used to parse the input program.
+
+
+\subsection{Grammar}
 The following is the grammar of microc:
 \begin{lstlisting}[language=C, basicstyle=\ttfamily\fontsize{8pt}{14pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
 Program::= Topdecl* EOF
 
-Topdecl::= Varlist; | Fundecl | Structdecl ";"
+Topdecl::= Varlist ";" | Fundecl | Structdecl ";"
 
 Varlist::= Typ Vardecl*
 
@@ -66,25 +81,30 @@ Shortop ::= "+=" | "-=" | "*=" | "/=" | "&="
 AExpr ::= INT | CHAR | BOOL | FLOAT | STRING | "NULL"
 | "(" RExpr ")" | "&" LExpr
 \end{lstlisting}
-It has been modified to accomodate the following features:
+\subsection*{Grammar modifications}
+In relation to the original grammar provided by the assignment, the following modifications
+have been implemented to extend the language:
 \begin{itemize}
     \item multiple variable declaration and initialization: multiple variables can be declared and initialized in a single statement
     like the following: \textbf{int a = 1, b = 2, c = 3;}. However, since function parameters and struct fields don't support initialization,
-    two different rules have been created: varlist and genericparam. The first one is used for variable declarations,
+    two different rules have been created: varlist and decl. The first one is used for variable declarations,
     while the latter is used for declaring function parameters and struct fields.
     \item sizeof operator: sizeof is considered as operator and not as a function. As such, its name has been added to the list of reserved keywords.
     \item bitwise operators
+    \item multi-dimensional arrays
     \item short assignment operators
-    \item Struct declaration and access
-    \item do-while loop
-    \item String literals
-    \item Floating point numbers
+    \item struct declaration and access
+    \item do-while loops
+    \item string literals
+    \item floating point numbers
 \end{itemize}
 \subsection*{Grammar disambiguation}
+The raw form of this grammar is ambiguous.
+To resolve this, Menhir's precedence and associativity rules have been utilized for disambiguation:
 \begin{itemize}
   \item dangling else: give precedence to if statement with an empty else branch
   \item Binary operators: inline the BinOp rule
-  \item Bitwise operators
+  \item Bitwise operators: give precedence to bitwise operators over logical operators
 \end{itemize}
 
 \section{Symbol Table}
@@ -142,37 +162,51 @@ type context = {
 }
 \end{lstlisting}
 
+for each kind of symbol, different information are stored and used during the analysis:
+\begin{itemize}
+  \item \textbf{var\_info}: the type of the variable
+  \item \textbf{fun\_info}: The return and parameter types of the function
+  \item \textbf{struct\_info}: The fields of the struct along with their types
+\end{itemize}
+
 
 \subsection{Additional rules}
 \paragraph*{Type Unification}
    In certain cases, types should not be directly compared for equality, but rather checked for compatibility.
-   The helper function \textbf{match\_types} is utilized to implement the following type checking rules:
+   The helper function \textbf{compare\_types} is utilized to implement the following type checking rules:
   \begin{itemize}
     \item Variable Initialization and Assignment: Pointer variables can be assigned the value NULL.
     \item Function Parameter Types: Unsized arrays are permissible as function parameters, allowing declarations in the form of a[] or a[][2][2].
   \end{itemize}
 
 \paragraph*{Global variable initialization}
-Global variables can be initialized only with compile-time defined constants.
+Global variables can be initialized only with compile-time defined constants. In microc, this means that
+they cannot be initialied with a function call.
 
 \paragraph*{String initialization}
 Strings are implemented as arrays of characters, but arrays cannot neither be initialized nor assigned in microc.
 Therefore, a special case has been added when checking the declaration of an array of characters to allow string declarations.
 The function which handles string initialization is \textbf{init\_string}.
 
+
+\paragraph*{Deadcode detection}
+Various types of dead code analyses exist. In this project, I focused on detecting code that follows a return statement.
+To facilitate this analysis, a boolean flag was incorporated into the return types of the \textbf{stmt\_type\_check}
+and \textbf{stmtordec\_type\_check} functions. This flag indicates whether the scan should proceed, specifically if
+a return statement has been encountered. If instructions are found after a return statement, an exception is raised.
+
 \paragraph*{Independent-order declarations}
 Functions and structs can be declared in any sequence and utilized prior to their declaration.
 This necessitates an initial scan of the program to incorporate the signatures into the symbol table.
 The bodies of these functions and structs are then verified in a subsequent scan.
 
-\paragraph*{deadcode detection}
-Various types of dead code exist. In this project, I focused on detecting code that follows a return statement.
-To facilitate this analysis, a boolean flag was incorporated into the return types of the \textbf{stmt\_type\_check}
-and \textbf{stmtordec\_type\_check} functions. This flag indicates whether the scan should proceed, specifically if
-a return statement has been encountered. If instructions are found after a return statement, an exception is raised.
-
 \paragraph*{Runtime support functions}
-
+During the initial scan, runtime support functions are incorporated into the symbol table.
+These runtime functions are defined in the \textbf{runtime.c} file.
+For each function, a placeholder AST node with an empty body is created
+and added to the symbol table.
+Most of the runtime functions are used to input and output data.
+Their implementation will be linked to the produced bitcode by Clang.
 
 \section{Code Generation}
 The code generation phase is responsible for generating the LLVM bitcode of the program.
@@ -180,8 +214,9 @@ As before, the code generation phase recursively traverses the AST and generates
 them to the corresponding LLVM operation.
 The relevant functions are the following:
 \begin{itemize}
-  \item \textbf{codegen\_fundecl}: maps a function declaration to a LLVM function
-  \item \textbf{codegen\_structdecl}:
+  \item \textbf{codegen\_fundecl}: maps a function declaration to a LLVM function.
+  It generates the body of the function and adds a default terminator if a return statement is not present.
+  \item \textbf{codegen\_struct}: maps a struct declaration to a "named structure" in LLVM
   \item \textbf{codegen\_stmt}: maps a statement to its corresponding LLVM operation.
   In particular if,while and do-while statements are mapped according to
   the following templates: \\
@@ -271,8 +306,8 @@ cont:
 % \end{verbatim}
 % \end{minipage}
   \item \textbf{codegen\_access}: maps each variable, pointer and array access to the associated address in memory
-  \item \textbf{codegen\_un\_op}
-  \item \textbf{codegen\_bin\_op}
+  \item \textbf{codegen\_expr}: maps each expression to the corresponding intermediate representation. It loads
+  values returned by \textbf{codegen\_access}
 \end{itemize}
 
 \subsection*{Code generation Symbol Table}
@@ -283,6 +318,10 @@ type context =
   ; struct_symbols : (L.lltype * string list) Symbol_table.t
   }
 \end{lstlisting}
+for var\_symbols and fun\_symbols, an llvalue is stored, which is their corresponding LLVM implementation.
+For struct\_symbols, a tuple of an lltype and a list of strings. The latter element is required because, once a struct is declared,
+fields name will be forgotten.
+
 
 \subsection*{Struct and Function generation}
 Similar to the semantic analysis, structs are generated in advance to
@@ -293,10 +332,10 @@ an address must exist in LLVM. Conversely, for function declarations,
 generating only the signature is sufficient to enable its invocation.
 
 \subsection*{Array parameters}
-Array parameters are converted to pointers. This was done either to resemble the C language practice
-and to support the unsized array as parameter.
-However this mechanism introduces some additional checks when accessing an array in the code.
-For instance, let's consider the following code:
+Array parameters are converted to pointers, mirroring the practice in the C language
+This mechanism allows the use of unsized arrays as parameters.
+However, this conversion necessitates additional checks when accessing an array in the code.
+Consider the following example:
 \begin{lstlisting}[basicstyle=\ttfamily\fontsize{8pt}{14pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
 int foo(int a[]) {
   int b[2];
@@ -304,8 +343,10 @@ int foo(int a[]) {
   return b;
 }
 \end{lstlisting}
-At llvm level, \textbf{a} will have a pointer as type, whereas \textbf{b} will array type.
-Therefore, when accessing an array, the two cases must be handled accordingly.
+In the produced LLVM bitcode, \textbf{a} is of pointer type, while \textbf{b} is of array type. Therefore, array access must be handled differently when
+the code generator encounters a AccIndex expression.
+Function calls must also accommodate this conversion. Upon encountering a Call statement,
+the code generator will pass a pointer to the array's first element as the argument.
 \end{document}
 
 \subsection*{Global variable initialization}
