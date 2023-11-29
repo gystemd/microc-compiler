@@ -56,12 +56,7 @@ let add_rt_support llmodule symbols =
     |> ignore)
 ;;
 
-
-let normalize_expr e t =
-  if L.is_undef e
-  then L.const_pointer_null t
-  else e
-;;
+let normalize_expr e t = if L.is_undef e then L.const_pointer_null t else e
 
 let add_terminator builder after =
   let terminator = L.block_terminator (L.insertion_block builder) in
@@ -70,9 +65,9 @@ let add_terminator builder after =
 
 let codegen_unop = function
   | t, Neg when t = int_type -> L.build_neg
+  | t, BNot when t = int_type -> L.build_not
   | t, Neg when t = float_type -> L.build_fneg
   | t, Not when t = bool_type -> L.build_not
-  | t, BNot when t = int_type -> L.build_not
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
@@ -93,6 +88,12 @@ let codegen_bin_op = function
   | t1, t2, Geq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sge
   | t1, t2, Equal when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Eq
   | t1, t2, Neq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Ne
+  | t1, t2, And when t1 = bool_type && t2 = bool_type -> L.build_and
+  | t1, t2, Or when t1 = bool_type && t2 = bool_type -> L.build_or
+  | t1, t2, Equal when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Ne
+  | t1, t2, Equal when t1 = char_type && t2 = char_type -> L.build_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = char_type && t2 = char_type -> L.build_icmp L.Icmp.Ne
   | t1, t2, Add when t1 = float_type && t2 = float_type -> L.build_fadd
   | t1, t2, Sub when t1 = float_type && t2 = float_type -> L.build_fsub
   | t1, t2, Mult when t1 = float_type && t2 = float_type -> L.build_fmul
@@ -109,12 +110,6 @@ let codegen_bin_op = function
   | t1, t2, Neq
     when L.classify_type t1 = L.TypeKind.Pointer
          && L.classify_type t2 = L.TypeKind.Pointer -> L.build_icmp L.Icmp.Ne
-  | t1, t2, Equal when t1 = char_type && t2 = char_type -> L.build_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = char_type && t2 = char_type -> L.build_icmp L.Icmp.Ne
-  | t1, t2, And when t1 = bool_type && t2 = bool_type -> L.build_and
-  | t1, t2, Or when t1 = bool_type && t2 = bool_type -> L.build_or
-  | t1, t2, Equal when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Ne
   | _ -> raise @@ Codegen_error "Type mismatch between operands"
 ;;
 
@@ -148,19 +143,17 @@ let codegen_const_binop = function
     raise @@ Codegen_error "Mismatch between type of global variable and initial value"
 ;;
 
-(* Applies the increment or decrement and return the value before the operation if it's a++ (a--) or the value returned by the expression
-   if it is ++a (--a)
-*)
-let build_unary_incr_or_decr builder op value =
+let build_pre_op builder op value =
   let inc_op = function
     | (PreIncr | PostIncr), t when t = int_type -> L.build_add llvm_one
     | (PreIncr | PostIncr), t when t = float_type -> L.build_fadd llvm_one
     | (PreDecr | PostDecr), t when t = int_type -> Fun.flip L.build_sub llvm_one
     | (PreDecr | PostDecr), t when t = float_type ->
       Fun.flip L.build_fsub llvm_onef (*Flip needed so a-- becomes a - 1 and not 1 - a *)
-    | _ -> raise @@ Codegen_error ("Invalid type for operator " ^ show_uop op)
+    | _ -> raise @@ Codegen_error ("Invalid argument for operator " ^ show_uop op)
   in
   let apply_op = inc_op (op, L.element_type (L.type_of value)) in
+  (*save the value for pre increment/decrement statements*)
   let before = L.build_load value "" builder in
   let after = apply_op before "" builder in
   L.build_store after value builder |> ignore;
@@ -211,7 +204,7 @@ let rec codegen_expr symbols builder expr =
       (*Abbreviated increments are only defined with access expression *)
     in
     let e_val = codegen_access symbols builder access_e in
-    build_unary_incr_or_decr builder op e_val
+    build_pre_op builder op e_val
   | UnaryOp (u, e) ->
     let e_val = codegen_expr symbols builder e in
     (*codegen_bin_op returns a partial function; then we apply the operand*)
@@ -277,13 +270,13 @@ and codegen_access symbols builder a =
     (match at |> L.classify_type with
      | L.TypeKind.Pointer ->
        (match at |> L.element_type |> L.classify_type with
-        (*Unsized array case: dereference the first element to get the sized array*)
+        (*multi-dimensional array*)
         | L.TypeKind.Array -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder
-        (*"normal" pointer *)
+        (*single dimension array*)
         | _ ->
           let load_val = Llvm.build_load a_val "" builder in
           Llvm.build_in_bounds_gep load_val [| ind |] "" builder)
-     (* it's a normal array *)
+     (* non-param array*)
      | _ -> L.build_in_bounds_gep a_val [| llvm_zero; ind |] "" builder)
   | AccStructField (a, f) ->
     let a_val = codegen_access symbols builder a in
@@ -350,7 +343,7 @@ let rec codegen_stmt fdef symbols builder stmt =
 and codegen_stmtordec fdef symbols builder st =
   match st.node with
   | DecList l ->
-    let var_gen symbols builder (t, i, init) =
+    let codegen_decl symbols builder (t, i, init) =
       let var_v = L.build_alloca (lltype_of_typ symbols.struct_symbols t) i builder in
       let get_init_val e =
         let e_val = codegen_expr symbols builder e in
@@ -368,7 +361,7 @@ and codegen_stmtordec fdef symbols builder st =
       Symbol_table.add_entry i actual_value symbols.var_symbols |> ignore;
       ()
     in
-    List.iter (var_gen symbols builder) l
+    List.iter (codegen_decl symbols builder) l
   | Stmt s -> codegen_stmt fdef symbols builder s
 ;;
 
@@ -384,7 +377,7 @@ let codegen_param symbols builder (t, id) param =
   L.build_store param l builder |> ignore
 ;;
 
-let codegen_func symbols func =
+let codegen_fundecl symbols func =
   let local_scope =
     { symbols with var_symbols = Symbol_table.begin_block symbols.var_symbols }
   in
@@ -444,7 +437,7 @@ let codegen_global_variable llmodule symbols (t, i) init =
 
 let codegen_topdecl llmodule symbols n =
   match n.node with
-  | Fundecl f -> codegen_func symbols f |> ignore
+  | Fundecl f -> codegen_fundecl symbols f |> ignore
   | VarDecList l ->
     let var_gen llmodule symbols (t, i, init) =
       codegen_global_variable llmodule symbols (t, i) init
