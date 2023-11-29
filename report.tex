@@ -144,32 +144,32 @@ type context = {
 
 
 \subsection{Additional rules}
-\paragraph*{Type unification}
-   There are cases in which in which types should not directly be tested to be equal, but rather they should be checked if compatible.
-   A helper function \textbf{match\_types} is used to implement the two following type checking rules:
-    \begin{itemize}
-        \item Variable initialization and assignment: Pointer variables can be assigned the value NULL
-        \item unsized arrays are admitted as type of function parameters, i.e. declarations in the form of a[] or a[][2][2].
-    \end{itemize}
+\paragraph*{Type Unification}
+   In certain cases, types should not be directly compared for equality, but rather checked for compatibility.
+   The helper function \textbf{match\_types} is utilized to implement the following type checking rules:
+  \begin{itemize}
+    \item Variable Initialization and Assignment: Pointer variables can be assigned the value NULL.
+    \item Function Parameter Types: Unsized arrays are permissible as function parameters, allowing declarations in the form of a[] or a[][2][2].
+  \end{itemize}
 
 \paragraph*{Global variable initialization}
 Global variables can be initialized only with compile-time defined constants.
 
 \paragraph*{String initialization}
-Strings are implemented as arrays of characters , but arrays cannot neither be initialized nor assigned in microc.
+Strings are implemented as arrays of characters, but arrays cannot neither be initialized nor assigned in microc.
 Therefore, a special case has been added when checking the declaration of an array of characters to allow string declarations.
 The function which handles string initialization is \textbf{init\_string}.
 
 \paragraph*{Independent-order declarations}
-Functions and structs can be declared in any order and can be used before their declaration.
-This entails a first scan of the program to add the signatures to the
-symbol table. The bodies instead are checked in the subsequent scan.
+Functions and structs can be declared in any sequence and utilized prior to their declaration.
+This necessitates an initial scan of the program to incorporate the signatures into the symbol table.
+The bodies of these functions and structs are then verified in a subsequent scan.
 
 \paragraph*{deadcode detection}
-Different forms of deadcode exist. For this project, I implemented the detection of code after a return statement.
-To implement this analysis, a boolean flag has been added to the return type of \textbf{stmt\_type\_check} and \textbf{stmtordec\_type\_check}
-to signal whether the scan should continue or not, that is if a return statement has been found.
-In case of instructions after a return statement, an exception is raised.
+Various types of dead code exist. In this project, I focused on detecting code that follows a return statement.
+To facilitate this analysis, a boolean flag was incorporated into the return types of the \textbf{stmt\_type\_check}
+and \textbf{stmtordec\_type\_check} functions. This flag indicates whether the scan should proceed, specifically if
+a return statement has been encountered. If instructions are found after a return statement, an exception is raised.
 
 \paragraph*{Runtime support functions}
 
@@ -177,7 +177,7 @@ In case of instructions after a return statement, an exception is raised.
 \section{Code Generation}
 The code generation phase is responsible for generating the LLVM bitcode of the program.
 As before, the code generation phase recursively traverses the AST and generates the bitcode for each statement, mapping
-each statement to the corresponding LLVM operation.
+them to the corresponding LLVM operation.
 The relevant functions are the following:
 \begin{itemize}
   \item \textbf{codegen\_fundecl}: maps a function declaration to a LLVM function
@@ -285,10 +285,12 @@ type context =
 \end{lstlisting}
 
 \subsection*{Struct and Function generation}
-As for the semantic analysis, Struct are generated beforehand to allow for their use before their declaration.
-However, this time the struct are fully generated in advance, and not only their signature. This is done because
-when using a struct object to access a field, an address must exist in LLVM to access it.
-For a function declaration instead, its signature generation is sufficient to allow for its call.
+Similar to the semantic analysis, structs are generated in advance to
+permit their use before declaration. However, in this case, the structs
+are fully generated, not just their signatures.
+This is necessary because when accessing a field of a struct object,
+an address must exist in LLVM. Conversely, for function declarations,
+generating only the signature is sufficient to enable its invocation.
 
 \subsection*{Array parameters}
 Array parameters are converted to pointers. This was done either to resemble the C language practice
@@ -307,5 +309,4 @@ Therefore, when accessing an array, the two cases must be handled accordingly.
 \end{document}
 
 \subsection*{Global variable initialization}
-Since the initialization of global variables can be performed only with compile-time defined constants,
-for this kind of variables on operations on constants are employed.
+Since global variables can only be initialized with compile-time defined constants, operations on these variables are restricted to constants.
