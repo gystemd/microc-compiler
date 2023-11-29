@@ -2,10 +2,9 @@
         open Ast
 
 
-        (* helper function to create the AST nodes*)
+        (* build a new annotated node*)
         let ann_node nd loc = {loc = (Location.to_code_position loc); node = nd; id=0}
 
-         (* utility functions to convert a for to a while *)
         let build_for_init e loc =
               match e with
               | Some(x) -> ann_node(Stmt(ann_node(Expr(x)) loc)) loc
@@ -25,7 +24,6 @@
 %}
 
 /* Tokens declarations */
-
 %token IF RETURN ELSE FOR WHILE DO INT CHAR VOID NULL BOOL FLOAT STRUCT
 %token PLUS MINUS TIMES DIVIDE MOD DOT
 %token SIZEOF
@@ -93,7 +91,7 @@ typ:
 genericparam:
 | t = typ v=vardesc {((fst v) t, snd v)}
 varlist:
-/* Unwraps the type declarations, applying the final function to t */
+/* Unwrap the type declarations, applying the final function to t */
 | t = typ v = separated_list(COMMA, vardecl) {List.map (fun (a,b,c) -> (a t, b, c)) v}
 ;
 
@@ -101,7 +99,9 @@ vardecl:
 | v = vardesc e = option(preceded(ASSIGN,expr)) {((fst v) , snd v, e)}
 ;
 vardesc:
-/* The inner type is given by vardesc so we compose functions instead of directly applying the type*/
+/* The 'vardesc' does not have information about the variable type. Hence, we generate a function
+  that accepts the type as an input parameter. This function then wraps the necessary layers
+  around the input to produce the correct final type. */
 | i = ID  {((fun t -> t), i)} 
 | TIMES v = vardesc %prec ADDRESS {((fun t->fst v (TypP(t))) , snd v )}
 | LPAREN v = vardesc RPAREN {v}
@@ -123,7 +123,7 @@ statement:
 | DO s = statement WHILE LPAREN e = expr RPAREN SEMI {ann_node (DoWhile(e, s)) $loc}
 | WHILE LPAREN e = expr RPAREN s=statement {ann_node (While(e, s)) $loc}
 | FOR LPAREN init = option(expr) SEMI ext_cond = option(expr) SEMI incr=option(expr) RPAREN s=statement
-/* Desugar the for declaration into an equivalent while */
+/* Transform the foor loop into equivalent while loop*/
 {
   
     ann_node (Block([build_for_init init $loc;
@@ -141,8 +141,7 @@ statement:
 ;
 
 elseblock:
-/* Give precedence to if without else */
-  | %prec NOELSE{ann_node (Block([])) $loc}
+  | %prec NOELSE{ann_node (Block([])) $loc} /* precedence to if without else */
   | ELSE st=statement {st}
 ;
 
@@ -175,7 +174,7 @@ rexpr:
 | l  = lexpr DECREMENT {ann_node(UnaryOp(PostDecr,ann_node(Access(l)) $loc )) $loc}
 ;
 
-(*binop is inline in order to not have shift reduce conflicts*)
+(*inline BinOp to remove shift-reduce conflicts*)
 %inline binOp:
 | PLUS  {Add}
 | MINUS   {Sub}
