@@ -62,6 +62,7 @@ Stmt::= "return" Expr ";" | Expr ";"
 Expr::= RExpr | LExpr
 
 LExpr::= ID | "(" LExpr ")"
+| "*" "&" LExpr
 | "*" LExpr | "*" AExpr
 | LExpr "[" Expr "]"
 | LExpr "." ID
