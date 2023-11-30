@@ -12,18 +12,24 @@
 \maketitle
 
 \paragraph{Instructions for compiling and running tests}
-To compile a microc program, you can run the script \textbf{test\_program.sh microc\_file}.
-To run a suite of tests, you can run the script \textbf{test\_all.sh test\_folder}.
+To compile a microc program, you can run the script:
 
-\begin{lstlisting}
-
+\begin{lstlisting}[frame=single,language=bash, basicstyle=\ttfamily\fontsize{8pt}{14pt}]
+chmod +x test_program.sh
+test_program.sh <microc_file>
 \end{lstlisting}
+To run a suite of tests, you can run the script:
+\begin{lstlisting}[frame=single, language=bash, basicstyle=\ttfamily\fontsize{8pt}{14pt}]
+chmod +x test_all.sh
+test_all.sh <test_folder>
+\end{lstlisting}
+
 \section{Frontend}
 The frontend of the compiler is responsible for parsing the input program and generating the AST.
 It has been implemented using the Menhir parser generator and the ocamllex lexer generator.
 ocammlllex uses regular expressions to define the patterns for recognizing tokens in the source code.
 Menhir, on the other hand, processes the stream of tokens produced by the lexer and
-constructs an abstract syntax tree associating to each rule a snipped of code to executed.
+constructs an abstract syntax tree by means of code snippets associated with each grammar rule.
 These two components are then combined into a parser engine in the file \textbf{parsing.ml}, used to parse the input program.
 
 
@@ -82,7 +88,8 @@ Shortop ::= "+=" | "-=" | "*=" | "/=" | "&="
 AExpr ::= INT | CHAR | BOOL | FLOAT | STRING | "NULL"
 | "(" RExpr ")" | "&" LExpr
 \end{lstlisting}
-\subsection*{Grammar modifications}
+As specified before, each time a rule is matched, a node of the AST is created. See the file \textbf{parserm.mly} for more information.
+\subsection{Grammar modifications}
 In relation to the original grammar provided by the assignment, the following modifications
 have been implemented to extend the language:
 \begin{itemize}
@@ -91,15 +98,15 @@ have been implemented to extend the language:
     two different rules have been created: varlist and decl. The first one is used for variable declarations,
     while the latter is used for declaring function parameters and struct fields.
     \item sizeof operator: sizeof is considered as operator and not as a function. As such, its name has been added to the list of reserved keywords.
-    \item bitwise operators
-    \item multi-dimensional arrays
-    \item short assignment operators
-    \item struct declaration and access
-    \item do-while loops
-    \item string literals
-    \item floating point numbers
+    \item bitwise operators: $<<$, $>>$, \&, $|$ , \^{} have been added to the list of binary operators.
+    \item multi-dimensional arrays.
+    \item short assignment operators: +=, -=, *=, \%=.
+    \item struct declaration and access: structs can be declared and accessed using the dot operator. The struct declaration must end with a semicolon.
+    \item do-while loops.
+    \item string literals: implemented as arrays of characters.
+    \item floating point numbers:
 \end{itemize}
-\subsection*{Grammar disambiguation}
+\subsection{Grammar disambiguation}
 The raw form of this grammar is ambiguous.
 To resolve this, Menhir's precedence and associativity rules have been utilized for disambiguation:
 \begin{itemize}
@@ -114,20 +121,18 @@ Therefore, the head of the list represents the local scope, whereas the tail rep
 For convenience and efficiency, three different symbol tables have been created for storing information about variables, functions and structs.
 Those three tables are then composed into a single object which is carried throughout the sematic analysis and code generation phases.
 The type signature of a symbol list is the following:
-\begin{lstlisting}
+\begin{lstlisting}[linewidth=10cm, frame=single, basicstyle=\ttfamily\fontsize{8pt}{14pt}]
 type 'a t = (string, 'a) Hashtbl.t list
 \end{lstlisting}
-
-The type signature of the context object is the following:
-\begin{lstlisting}
-type context = {
+The type signature of the agglomerating object is the following:
+\begin{lstlisting}[linewidth=10cm, frame=single, basicstyle=\ttfamily\fontsize{8pt}{14pt}]
+type environment = {
   fun_symbols : 'a Symbol_table.t;
   var_symbols : 'b Symbol_table.t;
   struct_symbols : 'c Symbol_table.t;
 }
 \end{lstlisting}
-
-The type of context assumes different values during the semantic analysis and code generation phases, which will explained in the following sections.
+The types will assumes different values during the semantic analysis and code generation phases, which will explained in the following sections.
 \section{Semantic Analysis}
 The aim of the semantic analysis of a microc program is to check the well-typedness of the program.
 This phase recursively traverses the AST and checks that the statements of the programs satisfy the rules of the type system.
@@ -151,18 +156,17 @@ All of these leverage the following other functions to obtain the type of their 
 \subsection{Semantic analysis Symbol Table}
 The type signature of the symbol table for this phase is the following:
 
-\begin{lstlisting}[basicstyle=\ttfamily\fontsize{6pt}{1em}]
+\begin{lstlisting}[linewidth=13cm, frame=single, basicstyle=\ttfamily\fontsize{8pt}{14pt}]
 type var_info = (code_pos * fun_decl) Symbol_table.t;
 type fun_info = (code_pos * typ) Symbol_table.t;
 type struct_info = (code_pos * struct_decl) Symbol_table.t;
 
-type context = {
+type environment= {
   fun_symbols : fun_info Symbol_table.t;
   var_symbols : var_info Symbol_table.t;
   struct_symbols : struct_info Symbol_table.t
 }
 \end{lstlisting}
-
 for each kind of symbol, different information are stored and used during the analysis:
 \begin{itemize}
   \item \textbf{var\_info}: the type of the variable
@@ -183,6 +187,9 @@ for each kind of symbol, different information are stored and used during the an
 \paragraph*{Global variable initialization}
 Global variables can be initialized only with compile-time defined constants. In microc, this means that
 they cannot be initialied with a function call.
+
+\paragraph*{Underflow and Overflow}
+When assigning a value or initializing a variable, the value must be within the range of the type.
 
 \paragraph*{String initialization}
 Strings are implemented as arrays of characters, but arrays cannot neither be initialized nor assigned in microc.
@@ -240,6 +247,7 @@ The relevant functions are the following:
 br <cond>, label %then, label %else
 then:
   ; then body
+  br label %cont
 else:
   ; else body
   br label %cont
@@ -312,8 +320,8 @@ cont:
 \end{itemize}
 
 \subsection*{Code generation Symbol Table}
-\begin{lstlisting}
-type context =
+\begin{lstlisting}[linewidth=13.5cm, frame=single, basicstyle=\ttfamily\fontsize{8pt}{14pt}]
+type environment=
   { fun_symbols : L.llvalue Symbol_table.t
   ; var_symbols : L.llvalue Symbol_table.t
   ; struct_symbols : (L.lltype * string list) Symbol_table.t

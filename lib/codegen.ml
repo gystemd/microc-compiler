@@ -13,7 +13,7 @@ let llvm_zero = L.const_int int_lltype 0
 let llvm_true = L.const_int bool_lltype 1
 let llvm_false = L.const_int bool_lltype 0
 
-type context =
+type environment =
   { fun_symbols : L.llvalue Symbol_table.t
   ; var_symbols : L.llvalue Symbol_table.t
   ; struct_symbols : (L.lltype * string list) Symbol_table.t
@@ -35,7 +35,6 @@ let rec lltype_of_typ structs = function
 ;;
 
 let add_rt_support llmodule symbols =
-  (*declares function prototypes *)
   let params_to_array params =
     params
     |> List.map fst
@@ -61,7 +60,7 @@ let add_terminator builder after =
   if Option.is_none terminator then after builder |> ignore else ()
 ;;
 
-let codegen_un_op = function
+let codegen_unop = function
   | t, Neg when t = int_lltype -> L.build_neg
   | t, BNot when t = int_lltype -> L.build_not
   | t, Neg when t = float_lltype -> L.build_fneg
@@ -69,7 +68,7 @@ let codegen_un_op = function
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
-let codegen_bin_op = function
+let codegen_binop = function
   | t1, t2, Add when t1 = int_lltype && t2 = int_lltype -> L.build_add
   | t1, t2, Sub when t1 = int_lltype && t2 = int_lltype -> L.build_sub
   | t1, t2, Div when t1 = int_lltype && t2 = int_lltype -> L.build_sdiv
@@ -190,7 +189,7 @@ let rec codegen_expr symbols builder expr =
     let a_val = L.build_load acc "" builder in
     let e_val = codegen_expr symbols builder e in
     let value =
-      codegen_bin_op (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder
+      codegen_binop (L.type_of a_val, L.type_of e_val, op) a_val e_val "" builder
     in
     L.build_store value acc builder |> ignore;
     value
@@ -214,7 +213,7 @@ let rec codegen_expr symbols builder expr =
   | UnaryOp (u, e) ->
     let e_val = codegen_expr symbols builder e in
     (*codegen_bin_op returns a partial function; then we apply the operand*)
-    codegen_un_op (L.type_of e_val, u) e_val "" builder
+    codegen_unop (L.type_of e_val, u) e_val "" builder
   | BinaryOp (b, e1, e2) ->
     let e1_val, e2_val =
       let v1, v2 = codegen_expr symbols builder e1, codegen_expr symbols builder e2 in
@@ -228,7 +227,7 @@ let rec codegen_expr symbols builder expr =
       | e1v, e2v -> e1v, e2v
     in
     (*codegen_bin_op returns a partial function; then we apply the two operands*)
-    codegen_bin_op (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
+    codegen_binop (L.type_of e1_val, L.type_of e2_val, b) e1_val e2_val "" builder
   | Call (func, params) ->
     let actual_f =
       match Symbol_table.lookup func symbols.fun_symbols with
@@ -245,8 +244,6 @@ let rec codegen_expr symbols builder expr =
         (match pt, a_type with
          | L.TypeKind.Pointer, L.TypeKind.Array ->
            L.build_gep a_val [| llvm_zero; llvm_zero |] "" builder
-         | L.TypeKind.Pointer, L.TypeKind.Pointer -> L.build_load a_val "" builder
-         | L.TypeKind.Pointer, _ -> a_val
          | _, _ -> L.build_load a_val "" builder)
       | _ ->
         let e_val = codegen_expr symbols builder e in

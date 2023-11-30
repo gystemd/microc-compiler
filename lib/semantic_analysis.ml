@@ -8,7 +8,7 @@ let min_int = 2147483648
 let max_float = 3.40282347e+38
 let min_float = 3.40282347e+38
 
-type context =
+type environment =
   { fun_symbols : (Location.code_pos * fun_decl) Symbol_table.t
   ; var_symbols : (Location.code_pos * typ) Symbol_table.t
   ; struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t
@@ -292,7 +292,7 @@ and access_type symbols a =
     @param location The location of the declaration in the source code
     @param t The type of the variable
     @param i The name of the variable *)
-let var_decl_type_check symbols location (t, i) =
+let vardecl_type_check symbols location (t, i) =
   (match t with
    | TypV -> raise @@ Semantic_error (location, "Cannot declare a void variable")
    | TypA (_, None) ->
@@ -362,13 +362,13 @@ and stmtordec_type_check symbols ftype sordec =
   | DecList l ->
     let check_var loc var =
       match var with
-      | typ, id, None -> var_decl_type_check symbols loc (typ, id)
+      | typ, id, None -> vardecl_type_check symbols loc (typ, id)
       | typ, id, Some expr ->
         (match typ, expr.node with
          | TypA (TypC, None), String str -> init_string loc symbols.var_symbols 0 id str
          | TypA (TypC, Some v), String str -> init_string loc symbols.var_symbols v id str
          | _ ->
-           var_decl_type_check symbols loc (typ, id);
+           vardecl_type_check symbols loc (typ, id);
            check_in_range loc expr.node;
            let e_type = expr_type symbols expr in
            (match e_type with
@@ -459,13 +459,13 @@ let topdecl_type_check symbols node =
   | VarDecList l ->
     let check_var loc x =
       match x with
-      | t, i, None -> var_decl_type_check symbols loc (t, i)
+      | t, i, None -> vardecl_type_check symbols loc (t, i)
       | t, i, Some expr ->
         (match t, expr.node with
          | TypA (TypC, None), String str -> init_string loc symbols.var_symbols 0 i str
          | TypA (TypC, Some v), String str -> init_string loc symbols.var_symbols v i str
          | _ ->
-           var_decl_type_check symbols loc (t, i);
+           vardecl_type_check symbols loc (t, i);
            check_in_range loc expr.node;
            let et = global_expr_type symbols loc expr in
            if compare_types loc t et
@@ -486,7 +486,7 @@ let topdecl_type_check symbols node =
            match f with
            | TypS f, id when f = s.sname ->
              raise @@ Semantic_error (node.loc, "Field " ^ id ^ " has incomplete type")
-           | _ -> var_decl_type_check struct_scope node.loc f)
+           | _ -> vardecl_type_check struct_scope node.loc f)
          s.fields;
        Symbol_table.end_block struct_scope.var_symbols |> ignore
      with
@@ -500,14 +500,14 @@ let type_check (Prog topdecls) =
   List.iter
     (fun (name, f) -> Symbol_table.add_entry name f runtime_functions |> ignore)
     Rt_support.rt_functions;
-  let context =
+  let environment =
     { fun_symbols = runtime_functions
     ; var_symbols = Symbol_table.empty_table ()
     ; struct_symbols = Symbol_table.empty_table ()
     }
   in
-  List.iter (add_fun_struct_sign context) topdecls;
-  List.iter (topdecl_type_check context) topdecls;
-  check_main_signature context |> ignore;
+  List.iter (add_fun_struct_sign environment) topdecls;
+  List.iter (topdecl_type_check environment) topdecls;
+  check_main_signature environment |> ignore;
   Prog topdecls
 ;;
