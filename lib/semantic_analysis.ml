@@ -3,11 +3,29 @@ exception Semantic_error of Location.code_pos * string
 open Ast
 open Symbol_table
 
+let max_int = 2147483647
+let min_int = 2147483648
+let max_float = 3.40282347e+38
+let min_float = 3.40282347e+38
+
 type context =
   { fun_symbols : (Location.code_pos * fun_decl) Symbol_table.t
   ; var_symbols : (Location.code_pos * typ) Symbol_table.t
   ; struct_symbols : (Location.code_pos * struct_decl) Symbol_table.t
   }
+
+let check_in_range loc lit =
+  match lit with
+  | ILiteral i when i > max_int ->
+    raise @@ Semantic_error (loc, "Integer literal " ^ string_of_int i ^ " out of range")
+  | FLiteral f when f > max_float ->
+    raise @@ Semantic_error (loc, "Integer literal out of range")
+  | UnaryOp (Neg, { node = ILiteral i; _ }) when i > min_int ->
+    raise @@ Semantic_error (loc, "Integer literal out of range")
+  | UnaryOp (Neg, { node = FLiteral f; _ }) when f > min_float ->
+    raise @@ Semantic_error (loc, "Float literal out of range")
+  | _ -> ()
+;;
 
 let add_fun_struct_sign symbols topdecl =
   match topdecl.node with
@@ -165,6 +183,7 @@ let rec expr_type symbols expr =
   match expr.node with
   | Access a -> access_type symbols a
   | Assign (a, e) ->
+    check_in_range expr.loc e.node;
     let at = access_type symbols a in
     (match at with
      | TypA (_, _) -> raise @@ Semantic_error (e.loc, "array cannot be reassigned")
@@ -181,8 +200,8 @@ let rec expr_type symbols expr =
                 ^ " to a variable of type "
                 ^ string_of_type at ))
   | ShortAssign (a, op, e) ->
-    (* Desugar a += e to a = a+e, to simplify checks *)
     let a_expr = { loc = e.loc; node = Access a; id = e.id } in
+    (*i+=1 -> i=i+1*)
     let bin_expr = { loc = e.loc; node = BinaryOp (op, a_expr, e); id = e.id } in
     expr_type symbols { loc = e.loc; node = Assign (a, bin_expr); id = e.id }
   | Addr a ->
@@ -350,6 +369,7 @@ and stmtordec_type_check symbols ftype sordec =
          | TypA (TypC, Some v), String str -> init_string loc symbols.var_symbols v id str
          | _ ->
            var_decl_type_check symbols loc (typ, id);
+           check_in_range loc expr.node;
            let e_type = expr_type symbols expr in
            (match e_type with
             | TypA (_, _) ->
@@ -446,6 +466,7 @@ let topdecl_type_check symbols node =
          | TypA (TypC, Some v), String str -> init_string loc symbols.var_symbols v i str
          | _ ->
            var_decl_type_check symbols loc (t, i);
+           check_in_range loc expr.node;
            let et = global_expr_type symbols loc expr in
            if compare_types loc t et
            then
