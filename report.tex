@@ -27,7 +27,7 @@ test_all.sh <test_folder>
 \section{Frontend}
 The frontend of the compiler is responsible for parsing the input program and generating the AST.
 It has been implemented using the Menhir parser generator and the ocamllex lexer generator.
-ocammlllex uses regular expressions to define the patterns for recognizing tokens in the source code.
+ocammllex uses regular expressions to define the patterns for recognizing tokens in the source code.
 Menhir, on the other hand, processes the stream of tokens produced by the lexer and
 constructs an abstract syntax tree by means of code snippets associated with each grammar rule.
 These two components are then combined into a parser engine in the file \textbf{parsing.ml}, used to parse the input program.
@@ -314,9 +314,9 @@ cont:
 
 % \end{verbatim}
 % \end{minipage}
-  \item \textbf{codegen\_access}: maps each variable, pointer and array access to the associated address in memory
+  \item \textbf{codegen\_access}: maps each variable, pointer and array access to the associated address in memory.
   \item \textbf{codegen\_expr}: maps each expression to the corresponding intermediate representation. It loads
-  values returned by \textbf{codegen\_access}
+  values returned by \textbf{codegen\_access}.
 \end{itemize}
 
 \subsection*{Code generation Symbol Table}
@@ -348,8 +348,8 @@ Consider the following example:
 \begin{lstlisting}[basicstyle=\ttfamily\fontsize{8pt}{14pt}, keywordstyle=\color{blue}, commentstyle=\color{green}]
 int foo(int a[]) {
   int b[2];
-  b = a[0];
-  return b;
+  b[0] = a[0];
+  ...
 }
 \end{lstlisting}
 In the produced LLVM bitcode, \textbf{a} is of pointer type, while \textbf{b} is of array type. Therefore, array access must be handled differently when
