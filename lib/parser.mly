@@ -99,9 +99,9 @@ vardecl:
 | v = vardesc e = option(preceded(ASSIGN,expr)) {((fst v) , snd v, e)}
 ;
 vardesc:
-/* The 'vardesc' does not have information about the variable type. Hence, we generate a function
-  that accepts the type as an input parameter. This function then wraps the necessary layers
-  around the input to produce the correct final type. */
+/* The 'vardesc' rule does not have information about the variable type. Hence, we generate a function
+  that accepts the type as an input parameter. This function will wrap the necessary layers (Pointers and Arrays)
+  around the input to produce the correct final type, e.g TypP(TypP(TypP(TypI))). */
 | i = ID  {((fun t -> t), i)} 
 | TIMES v = vardesc %prec ADDRESS {((fun t->fst v (TypP(t))) , snd v )}
 | LPAREN v = vardesc RPAREN {v}
@@ -125,7 +125,7 @@ statement:
 | FOR LPAREN init = option(expr) SEMI ext_cond = option(expr) SEMI incr=option(expr) RPAREN s=statement
 /* Transform the foor loop into equivalent while loop*/
 {
-  
+
     ann_node (Block([build_for_init init $loc;
               ann_node (Stmt(
                   ann_node (While(build_for_condition ext_cond $loc,

@@ -4,16 +4,14 @@ open Ast
 module L = Llvm
 
 let llcontext = L.global_context ()
-let int_type = L.i32_type llcontext
-let float_type = L.float_type llcontext
-let bool_type = L.i1_type llcontext
-let char_type = L.i8_type llcontext
-let void_type = L.void_type llcontext
-let llvm_one = L.const_int int_type 1
-let llvm_zero = L.const_int int_type 0
-let llvm_onef = L.const_float float_type 1.0
-let llvm_true = L.const_int bool_type 1
-let llvm_false = L.const_int bool_type 0
+let int_lltype = L.i32_type llcontext
+let float_lltype = L.float_type llcontext
+let bool_lltype = L.i1_type llcontext
+let char_lltype = L.i8_type llcontext
+let void_lltype = L.void_type llcontext
+let llvm_zero = L.const_int int_lltype 0
+let llvm_true = L.const_int bool_lltype 1
+let llvm_false = L.const_int bool_lltype 0
 
 type context =
   { fun_symbols : L.llvalue Symbol_table.t
@@ -22,14 +20,14 @@ type context =
   }
 
 let rec lltype_of_typ structs = function
-  | TypI -> int_type
-  | TypF -> float_type
-  | TypC -> char_type
-  | TypB -> bool_type
-  | TypV -> void_type
+  | TypI -> int_lltype
+  | TypF -> float_lltype
+  | TypC -> char_lltype
+  | TypB -> bool_lltype
+  | TypV -> void_lltype
   | TypA (t, None) | TypP t -> L.pointer_type (lltype_of_typ structs t)
   | TypA (t, Some v) -> L.array_type (lltype_of_typ structs t) v
-  | TypNull -> L.pointer_type void_type
+  | TypNull -> L.pointer_type void_lltype
   | TypS n ->
     (match Symbol_table.lookup n structs with
      | Some (t, _) -> t
@@ -64,46 +62,46 @@ let add_terminator builder after =
 ;;
 
 let codegen_un_op = function
-  | t, Neg when t = int_type -> L.build_neg
-  | t, BNot when t = int_type -> L.build_not
-  | t, Neg when t = float_type -> L.build_fneg
-  | t, Not when t = bool_type -> L.build_not
+  | t, Neg when t = int_lltype -> L.build_neg
+  | t, BNot when t = int_lltype -> L.build_not
+  | t, Neg when t = float_lltype -> L.build_fneg
+  | t, Not when t = bool_lltype -> L.build_not
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
 let codegen_bin_op = function
-  | t1, t2, Add when t1 = int_type && t2 = int_type -> L.build_add
-  | t1, t2, Sub when t1 = int_type && t2 = int_type -> L.build_sub
-  | t1, t2, Div when t1 = int_type && t2 = int_type -> L.build_sdiv
-  | t1, t2, Mult when t1 = int_type && t2 = int_type -> L.build_mul
-  | t1, t2, Mod when t1 = int_type && t2 = int_type -> L.build_srem
-  | t1, t2, BAnd when t1 = int_type && t2 = int_type -> L.build_and
-  | t1, t2, BOr when t1 = int_type && t2 = int_type -> L.build_or
-  | t1, t2, BXor when t1 = int_type && t2 = int_type -> L.build_xor
-  | t1, t2, LShift when t1 = int_type && t2 = int_type -> L.build_shl
-  | t1, t2, RShift when t1 = int_type && t2 = int_type -> L.build_lshr
-  | t1, t2, Less when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Slt
-  | t1, t2, Leq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sle
-  | t1, t2, Greater when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sgt
-  | t1, t2, Geq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Sge
-  | t1, t2, Equal when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = int_type && t2 = int_type -> L.build_icmp L.Icmp.Ne
-  | t1, t2, And when t1 = bool_type && t2 = bool_type -> L.build_and
-  | t1, t2, Or when t1 = bool_type && t2 = bool_type -> L.build_or
-  | t1, t2, Equal when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = bool_type && t2 = bool_type -> L.build_icmp L.Icmp.Ne
-  | t1, t2, Equal when t1 = char_type && t2 = char_type -> L.build_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = char_type && t2 = char_type -> L.build_icmp L.Icmp.Ne
-  | t1, t2, Add when t1 = float_type && t2 = float_type -> L.build_fadd
-  | t1, t2, Sub when t1 = float_type && t2 = float_type -> L.build_fsub
-  | t1, t2, Mult when t1 = float_type && t2 = float_type -> L.build_fmul
-  | t1, t2, Div when t1 = float_type && t2 = float_type -> L.build_fdiv
-  | t1, t2, Less when t1 = float_type && t2 = float_type -> L.build_fcmp L.Fcmp.Olt
-  | t1, t2, Leq when t1 = float_type && t2 = float_type -> L.build_fcmp L.Fcmp.Ole
-  | t1, t2, Greater when t1 = float_type && t2 = float_type -> L.build_fcmp L.Fcmp.Ogt
-  | t1, t2, Geq when t1 = float_type && t2 = float_type -> L.build_fcmp L.Fcmp.Oge
-  | t1, t2, Equal when t1 = float_type && t2 = float_type -> L.build_fcmp L.Fcmp.Oeq
-  | t1, t2, Neq when t1 = float_type && t2 = float_type -> L.build_fcmp L.Fcmp.One
+  | t1, t2, Add when t1 = int_lltype && t2 = int_lltype -> L.build_add
+  | t1, t2, Sub when t1 = int_lltype && t2 = int_lltype -> L.build_sub
+  | t1, t2, Div when t1 = int_lltype && t2 = int_lltype -> L.build_sdiv
+  | t1, t2, Mult when t1 = int_lltype && t2 = int_lltype -> L.build_mul
+  | t1, t2, Mod when t1 = int_lltype && t2 = int_lltype -> L.build_srem
+  | t1, t2, BAnd when t1 = int_lltype && t2 = int_lltype -> L.build_and
+  | t1, t2, BOr when t1 = int_lltype && t2 = int_lltype -> L.build_or
+  | t1, t2, BXor when t1 = int_lltype && t2 = int_lltype -> L.build_xor
+  | t1, t2, LShift when t1 = int_lltype && t2 = int_lltype -> L.build_shl
+  | t1, t2, RShift when t1 = int_lltype && t2 = int_lltype -> L.build_lshr
+  | t1, t2, Less when t1 = int_lltype && t2 = int_lltype -> L.build_icmp L.Icmp.Slt
+  | t1, t2, Leq when t1 = int_lltype && t2 = int_lltype -> L.build_icmp L.Icmp.Sle
+  | t1, t2, Greater when t1 = int_lltype && t2 = int_lltype -> L.build_icmp L.Icmp.Sgt
+  | t1, t2, Geq when t1 = int_lltype && t2 = int_lltype -> L.build_icmp L.Icmp.Sge
+  | t1, t2, Equal when t1 = int_lltype && t2 = int_lltype -> L.build_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = int_lltype && t2 = int_lltype -> L.build_icmp L.Icmp.Ne
+  | t1, t2, And when t1 = bool_lltype && t2 = bool_lltype -> L.build_and
+  | t1, t2, Or when t1 = bool_lltype && t2 = bool_lltype -> L.build_or
+  | t1, t2, Equal when t1 = bool_lltype && t2 = bool_lltype -> L.build_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = bool_lltype && t2 = bool_lltype -> L.build_icmp L.Icmp.Ne
+  | t1, t2, Equal when t1 = char_lltype && t2 = char_lltype -> L.build_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = char_lltype && t2 = char_lltype -> L.build_icmp L.Icmp.Ne
+  | t1, t2, Add when t1 = float_lltype && t2 = float_lltype -> L.build_fadd
+  | t1, t2, Sub when t1 = float_lltype && t2 = float_lltype -> L.build_fsub
+  | t1, t2, Mult when t1 = float_lltype && t2 = float_lltype -> L.build_fmul
+  | t1, t2, Div when t1 = float_lltype && t2 = float_lltype -> L.build_fdiv
+  | t1, t2, Less when t1 = float_lltype && t2 = float_lltype -> L.build_fcmp L.Fcmp.Olt
+  | t1, t2, Leq when t1 = float_lltype && t2 = float_lltype -> L.build_fcmp L.Fcmp.Ole
+  | t1, t2, Greater when t1 = float_lltype && t2 = float_lltype -> L.build_fcmp L.Fcmp.Ogt
+  | t1, t2, Geq when t1 = float_lltype && t2 = float_lltype -> L.build_fcmp L.Fcmp.Oge
+  | t1, t2, Equal when t1 = float_lltype && t2 = float_lltype -> L.build_fcmp L.Fcmp.Oeq
+  | t1, t2, Neq when t1 = float_lltype && t2 = float_lltype -> L.build_fcmp L.Fcmp.One
   | t1, t2, Equal
     when L.classify_type t1 = L.TypeKind.Pointer
          && L.classify_type t2 = L.TypeKind.Pointer -> L.build_icmp L.Icmp.Eq
@@ -114,58 +112,68 @@ let codegen_bin_op = function
 ;;
 
 let codegen_const_binop = function
-  | t1, t2, Add when t1 = int_type && t2 = int_type -> L.const_add
-  | t1, t2, Sub when t1 = int_type && t2 = int_type -> L.const_sub
-  | t1, t2, Mult when t1 = int_type && t2 = int_type -> L.const_mul
-  | t1, t2, Div when t1 = int_type && t2 = int_type -> L.const_sdiv
-  | t1, t2, Mod when t1 = int_type && t2 = int_type -> L.const_srem
-  | t1, t2, Less when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Slt
-  | t1, t2, Leq when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Sle
-  | t1, t2, Greater when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Sgt
-  | t1, t2, Geq when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Sge
-  | t1, t2, Equal when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = int_type && t2 = int_type -> L.const_icmp L.Icmp.Ne
-  | t1, t2, Add when t1 = float_type && t2 = float_type -> L.const_fadd
-  | t1, t2, Sub when t1 = float_type && t2 = float_type -> L.const_fsub
-  | t1, t2, Div when t1 = float_type && t2 = float_type -> L.const_fdiv
-  | t1, t2, Mult when t1 = float_type && t2 = float_type -> L.const_fmul
-  | t1, t2, Less when t1 = float_type && t2 = float_type -> L.const_fcmp L.Fcmp.Olt
-  | t1, t2, Leq when t1 = float_type && t2 = float_type -> L.const_fcmp L.Fcmp.Ole
-  | t1, t2, Greater when t1 = float_type && t2 = float_type -> L.const_fcmp L.Fcmp.Ogt
-  | t1, t2, Geq when t1 = float_type && t2 = float_type -> L.const_fcmp L.Fcmp.Oge
-  | t1, t2, Equal when t1 = float_type && t2 = float_type -> L.const_fcmp L.Fcmp.Oeq
-  | t1, t2, Neq when t1 = float_type && t2 = float_type -> L.const_fcmp L.Fcmp.One
-  | t1, t2, And when t1 = bool_type && t2 = bool_type -> L.const_and
-  | t1, t2, Or when t1 = bool_type && t2 = bool_type -> L.const_or
-  | t1, t2, Equal when t1 = bool_type && t2 = bool_type -> L.const_icmp L.Icmp.Eq
-  | t1, t2, Neq when t1 = bool_type && t2 = bool_type -> L.const_icmp L.Icmp.Ne
+  | t1, t2, Add when t1 = int_lltype && t2 = int_lltype -> L.const_add
+  | t1, t2, Sub when t1 = int_lltype && t2 = int_lltype -> L.const_sub
+  | t1, t2, Mult when t1 = int_lltype && t2 = int_lltype -> L.const_mul
+  | t1, t2, Div when t1 = int_lltype && t2 = int_lltype -> L.const_sdiv
+  | t1, t2, Mod when t1 = int_lltype && t2 = int_lltype -> L.const_srem
+  | t1, t2, Less when t1 = int_lltype && t2 = int_lltype -> L.const_icmp L.Icmp.Slt
+  | t1, t2, Leq when t1 = int_lltype && t2 = int_lltype -> L.const_icmp L.Icmp.Sle
+  | t1, t2, Greater when t1 = int_lltype && t2 = int_lltype -> L.const_icmp L.Icmp.Sgt
+  | t1, t2, Geq when t1 = int_lltype && t2 = int_lltype -> L.const_icmp L.Icmp.Sge
+  | t1, t2, Equal when t1 = int_lltype && t2 = int_lltype -> L.const_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = int_lltype && t2 = int_lltype -> L.const_icmp L.Icmp.Ne
+  | t1, t2, Add when t1 = float_lltype && t2 = float_lltype -> L.const_fadd
+  | t1, t2, Sub when t1 = float_lltype && t2 = float_lltype -> L.const_fsub
+  | t1, t2, Div when t1 = float_lltype && t2 = float_lltype -> L.const_fdiv
+  | t1, t2, Mult when t1 = float_lltype && t2 = float_lltype -> L.const_fmul
+  | t1, t2, Less when t1 = float_lltype && t2 = float_lltype -> L.const_fcmp L.Fcmp.Olt
+  | t1, t2, Leq when t1 = float_lltype && t2 = float_lltype -> L.const_fcmp L.Fcmp.Ole
+  | t1, t2, Greater when t1 = float_lltype && t2 = float_lltype -> L.const_fcmp L.Fcmp.Ogt
+  | t1, t2, Geq when t1 = float_lltype && t2 = float_lltype -> L.const_fcmp L.Fcmp.Oge
+  | t1, t2, Equal when t1 = float_lltype && t2 = float_lltype -> L.const_fcmp L.Fcmp.Oeq
+  | t1, t2, Neq when t1 = float_lltype && t2 = float_lltype -> L.const_fcmp L.Fcmp.One
+  | t1, t2, And when t1 = bool_lltype && t2 = bool_lltype -> L.const_and
+  | t1, t2, Or when t1 = bool_lltype && t2 = bool_lltype -> L.const_or
+  | t1, t2, Equal when t1 = bool_lltype && t2 = bool_lltype -> L.const_icmp L.Icmp.Eq
+  | t1, t2, Neq when t1 = bool_lltype && t2 = bool_lltype -> L.const_icmp L.Icmp.Ne
   | _ ->
     raise @@ Codegen_error "Mismatch between type of global variable and initial value"
 ;;
 
-let build_pre_op builder op value =
+(* This function builds the LLVM instructions for pre-increment, post-increment,
+   pre-decrement, and post-decrement operations. *)
+let build_pre_post_op builder op value =
+  (* Constants for incrementing and decrementing integer and floating point values. *)
+  let llvm_one = L.const_int int_lltype 1 in
+  let llvm_onef = L.const_float float_lltype 1.0 in
   let inc_op = function
-    | (PreIncr | PostIncr), t when t = int_type -> L.build_add llvm_one
-    | (PreIncr | PostIncr), t when t = float_type -> L.build_fadd llvm_one
-    | (PreDecr | PostDecr), t when t = int_type -> Fun.flip L.build_sub llvm_one
-    | (PreDecr | PostDecr), t when t = float_type -> Fun.flip L.build_fsub llvm_onef
+    | (PreIncr | PostIncr), t when t = int_lltype -> L.build_add llvm_one
+    | (PreIncr | PostIncr), t when t = float_lltype -> L.build_fadd llvm_one
+    (* for decrement we have to flip the arguments to allow inc_op to be single
+       argument function*)
+    | (PreDecr | PostDecr), t when t = int_lltype -> Fun.flip L.build_sub llvm_one
+    | (PreDecr | PostDecr), t when t = float_lltype -> Fun.flip L.build_fsub llvm_onef
     | _ -> raise @@ Codegen_error ("Invalid argument for operator " ^ show_uop op)
   in
+  (* Get the correct LLVM build function for the operation and type. *)
   let apply_op = inc_op (op, L.element_type (L.type_of value)) in
-  (*save the value before the operation, to return in case it's a post operator*)
+  (* Save the value before the operation, to return in case of a post operator. *)
   let before = L.build_load value "" builder in
+  (* Apply the operation and store the result. *)
   let after = apply_op before "" builder in
   L.build_store after value builder |> ignore;
+  (* Return the value before the operation for post operators, and the value after the operation for pre operators. *)
   if op = PreIncr || op = PreDecr then after else before
 ;;
 
 let rec codegen_expr symbols builder expr =
   match expr.node with
-  | Null -> L.undef (int_type |> L.pointer_type)
-  | ILiteral i -> L.const_int int_type i
-  | FLiteral f -> L.const_float float_type f
+  | Null -> L.undef (int_lltype |> L.pointer_type)
+  | ILiteral i -> L.const_int int_lltype i
+  | FLiteral f -> L.const_float float_lltype f
   | BLiteral b -> if b then llvm_true else llvm_false
-  | CLiteral c -> L.const_int char_type (Char.code c)
+  | CLiteral c -> L.const_int char_lltype (Char.code c)
   | String s -> L.build_global_string (s ^ "\000") "" builder
   | Access a ->
     let a_val = codegen_access symbols builder a in
@@ -193,7 +201,8 @@ let rec codegen_expr symbols builder expr =
       | L.TypeKind.Pointer -> L.size_of (L.element_type t)
       | _ -> L.size_of t
     in
-    L.build_trunc size int_type "" builder
+    (* Truncate the size to an integer since L.size_of returns a i64_type*)
+    L.build_trunc size int_lltype "" builder
   | UnaryOp (((PreIncr | PostIncr | PreDecr | PostDecr) as op), expr) ->
     let access_e =
       match expr.node with
@@ -201,7 +210,7 @@ let rec codegen_expr symbols builder expr =
       | _ -> raise @@ Codegen_error "Invalid argument for abbreviated operator"
     in
     let e_val = codegen_access symbols builder access_e in
-    build_pre_op builder op e_val
+    build_pre_post_op builder op e_val
   | UnaryOp (u, e) ->
     let e_val = codegen_expr symbols builder e in
     (*codegen_bin_op returns a partial function; then we apply the operand*)
@@ -227,7 +236,7 @@ let rec codegen_expr symbols builder expr =
       | None -> raise @@ Codegen_error ("Undefined  function  " ^ func)
     in
     let codegen_call_expr symbols builder p e =
-      (*Since array function parameters are all pointers, converts arrays  to pointers to the first element *)
+      (*array function parameter is a pointer, therefore it is converted to a pointer to the first element*)
       match e.node with
       | Access a ->
         let a_val = codegen_access symbols builder a in
@@ -394,17 +403,17 @@ let codegen_fundecl symbols func =
 
 (* used for global variables *)
 let codegen_const_op = function
-  | t, Neg when t = int_type -> L.const_neg
-  | t, Neg when t = float_type -> L.const_fneg
-  | t, Not when t = bool_type -> L.const_not
+  | t, Neg when t = int_lltype -> L.const_neg
+  | t, Neg when t = float_lltype -> L.const_fneg
+  | t, Not when t = bool_lltype -> L.const_not
   | _ -> raise @@ Codegen_error "Invald unary operator for global variable"
 ;;
 
 let rec codegen_global_expr structs t expr =
   match expr.node with
-  | ILiteral i -> L.const_int int_type i
-  | FLiteral f -> L.const_float float_type f
-  | CLiteral c -> Char.code c |> L.const_int char_type
+  | ILiteral i -> L.const_int int_lltype i
+  | FLiteral f -> L.const_float float_lltype f
+  | CLiteral c -> Char.code c |> L.const_int char_lltype
   | BLiteral b -> if b then llvm_true else llvm_false
   | String s -> L.const_stringz llcontext s
   | Null -> lltype_of_typ structs t |> L.const_pointer_null
@@ -443,7 +452,7 @@ let codegen_topdecl llmodule symbols n =
   | Structdecl _ -> ()
 ;;
 
-let add_fun_sign llmodule symbols node =
+let codegen_fun_sign llmodule symbols node =
   match node.node with
   | Fundecl func ->
     let ret_type = lltype_of_typ symbols.struct_symbols func.typ in
@@ -466,10 +475,10 @@ let add_fun_sign llmodule symbols node =
 let codegen_struct_sign symbols node =
   match node.node with
   | Structdecl s ->
-    let named_s = L.named_struct_type llcontext s.sname in
+    let named_struct = L.named_struct_type llcontext s.sname in
     Symbol_table.add_entry
       s.sname
-      (named_s, s.fields |> List.map snd)
+      (named_struct, s.fields |> List.map snd)
       symbols.struct_symbols
     |> ignore
   | _ -> ()
@@ -478,13 +487,13 @@ let codegen_struct_sign symbols node =
 let codegen_struct symbols node =
   match node.node with
   | Structdecl s ->
-    let named_s =
+    let named_struct =
       Symbol_table.lookup s.sname symbols.struct_symbols |> Option.get |> fst
     in
     let fields_t =
       s.fields |> List.map (fun (t, _) -> lltype_of_typ symbols.struct_symbols t)
     in
-    L.struct_set_body named_s (Array.of_list fields_t) false |> ignore
+    L.struct_set_body named_struct (Array.of_list fields_t) false |> ignore
   | _ -> ()
 ;;
 
@@ -497,11 +506,11 @@ let to_llvm_module (Prog topdecls) =
     ; struct_symbols = Symbol_table.empty_table ()
     }
   in
+  (* generate all the structs *)
   List.iter (codegen_struct_sign init_context) topdecls;
-  (*first generate all the structs*)
   List.iter (codegen_struct init_context) topdecls;
   (* then generate all functions signatures *)
-  List.iter (add_fun_sign llmodule init_context) topdecls;
+  List.iter (codegen_fun_sign llmodule init_context) topdecls;
   add_rt_support llmodule init_context;
   List.iter (codegen_topdecl llmodule init_context) topdecls;
   llmodule

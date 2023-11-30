@@ -1,16 +1,15 @@
 {
     open Parser
 
-    (* Auxiliary definitions *)
     exception Lexing_error of Location.lexeme_pos * string
 
     let raise_lexer_error buf err=
         let position = Location.to_lexeme_position buf in
         raise @@ Lexing_error(position, err)
 
-    let create_hashtable size init =
+    let create_hashtable size dict =
         let table = Hashtbl.create size in
-        List.iter(fun (key, value) -> Hashtbl.add table key value ) init;
+        List.iter(fun (key, value) -> Hashtbl.add table key value ) dict;
         table
 
 
@@ -38,13 +37,13 @@
 
 let digit = ['0' - '9']
 let letter = ['a'-'z' 'A'-'Z']
-let exponent   = ['e' 'E'] ['-' '+']? digit+
-let float      = (digit digit* '.' digit* | digit* '.' digit digit*) exponent? | digit+ exponent
 let id = ('_' | letter )('_' | letter | digit)*
+let exponent   = ['e' 'E'] ['-' '+']? digit+
+let float = (digit digit* '.' digit* | digit* '.' digit digit*) exponent? | digit+ exponent
 let newline = '\r'|'\n'| '\n' '\r'
-let ws = [' ' '\t']+
+let white_space = [' ' '\t']+
 rule next_token = parse
-    | ws+       {next_token lexbuf}
+    | white_space +       {next_token lexbuf}
     | newline {Lexing.new_line lexbuf; next_token lexbuf}
     | id as word
         {
