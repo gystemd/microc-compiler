@@ -63,7 +63,7 @@ let add_terminator builder after =
   if Option.is_none terminator then after builder |> ignore else ()
 ;;
 
-let codegen_unop = function
+let codegen_un_op = function
   | t, Neg when t = int_type -> L.build_neg
   | t, BNot when t = int_type -> L.build_not
   | t, Neg when t = float_type -> L.build_fneg
@@ -205,7 +205,7 @@ let rec codegen_expr symbols builder expr =
   | UnaryOp (u, e) ->
     let e_val = codegen_expr symbols builder e in
     (*codegen_bin_op returns a partial function; then we apply the operand*)
-    codegen_unop (L.type_of e_val, u) e_val "" builder
+    codegen_un_op (L.type_of e_val, u) e_val "" builder
   | BinaryOp (b, e1, e2) ->
     let e1_val, e2_val =
       let v1, v2 = codegen_expr symbols builder e1, codegen_expr symbols builder e2 in
@@ -463,7 +463,7 @@ let add_fun_sign llmodule symbols node =
   | _ -> ()
 ;;
 
-let codegen_struct symbols node =
+let codegen_struct_sign symbols node =
   match node.node with
   | Structdecl s ->
     let named_s = L.named_struct_type llcontext s.sname in
@@ -471,7 +471,16 @@ let codegen_struct symbols node =
       s.sname
       (named_s, s.fields |> List.map snd)
       symbols.struct_symbols
-    |> ignore;
+    |> ignore
+  | _ -> ()
+;;
+
+let codegen_struct symbols node =
+  match node.node with
+  | Structdecl s ->
+    let named_s =
+      Symbol_table.lookup s.sname symbols.struct_symbols |> Option.get |> fst
+    in
     let fields_t =
       s.fields |> List.map (fun (t, _) -> lltype_of_typ symbols.struct_symbols t)
     in
@@ -488,6 +497,7 @@ let to_llvm_module (Prog topdecls) =
     ; struct_symbols = Symbol_table.empty_table ()
     }
   in
+  List.iter (codegen_struct_sign init_context) topdecls;
   (*first generate all the structs*)
   List.iter (codegen_struct init_context) topdecls;
   (* then generate all functions signatures *)
