@@ -16,11 +16,11 @@
  (name microc-lang)
  (synopsis "microc is a simple subset of the C language.")
  (description "microc is a simple subset of the C language.")
- (depends 
-  (ocaml (>= 4.12)) 
+ (depends
+  (ocaml (and (>= 4.12) (< 5.0)))
    dune
    menhir
    ppx_deriving
-   (llvm (>= 12.0.0))))
+   (llvm (and (>= 12.0.0)(< 15.0.0)))))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/dune-files.html#dune-project

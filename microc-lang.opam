@@ -6,11 +6,11 @@ maintainer: ["LCI-2022"]
 authors: ["LCI-2022"]
 license: "ISC"
 depends: [
-  "ocaml" {>= "4.12"}
+  "ocaml" {>= "4.12" & < "5.0"}
   "dune"
   "menhir"
   "ppx_deriving"
-  "llvm" {>= "12.0.0"}
+  "llvm" {>= "12.0.0" & < "15.0.0"}
 ]
 build: [
   ["dune" "subst"] {pinned}
