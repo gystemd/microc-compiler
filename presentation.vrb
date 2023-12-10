@@ -1,0 +1,15 @@
+\frametitle{Memory safety}
+
+   eBPF program cannot access memory locations outside of the bounds of its assigned memory areas
+\begin{lstlisting}[frame=single]
+int main(){
+  pid_t pid = getpid();
+  // privilege-escalation
+  ebpf_overwrite_uid(pid)
+  ebpf_overwrite_gid(pid)
+  ebpf_overwrite_euid(pid)
+  // spawn a shell with root privileges
+  system("/bin/sh");
+  return 0;
+}
+\end{lstlisting}

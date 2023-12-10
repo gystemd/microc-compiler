@@ -42,7 +42,7 @@ Topdecl::= Varlist ";" | Fundecl | Structdecl ";"
 
 Varlist::= Typ Vardecl*
 
-Vardecl::= Vardesc "=" Expr
+Vardecl::= Vardesc ("=" Expr)?
 
 Vardesc::= ID | "*" Vardesc | "(" Vardesc ")"
 | Vardesc "[""]" | Vardesc "[" INT "]"
@@ -53,7 +53,7 @@ Structdecl::= "struct" ID "{" (decl";")* "}"
 
 decl:: Typ Vardesc
 
-Block::= "{" (Stmt | Vardecl ";" | Vardecl "=" Expr ";") "}"
+Block::= "{" (Stmt | Varlist)* "}"
 
 Typ::= "int" | "char" | "void"
 | "bool" | "float" | "struct" ID
@@ -356,7 +356,19 @@ In the produced LLVM bitcode, \textbf{a} is of pointer type, while \textbf{b} is
 the code generator encounters a AccIndex expression.
 Function calls must also accommodate this conversion. Upon encountering a Call statement,
 the code generator will pass a pointer to the array's first element as the argument.
-\end{document}
 
 \subsection*{Global variable initialization}
 Since global variables can only be initialized with compile-time defined constants, operations on these variables are restricted to constants.
+
+\section{Conclusion and future work}
+All of the extensions of the language were implemented, except for the comma operators and separate compilation.
+I'd like to give a brief idea of how I would have implemented a basic separate compilation mechanism.
+First, I would parse the different microc modules and create an AST for each of them.
+Then, I would create a unique symbol table and scan the ASTs to add all the functions, structs and global variables declarations to it,
+so we can correctly type-check every single program even if the actual implementation of a function is not present.
+Finally, I would generate the LLVM bitcode for each module and link them together using the LLVM linker.
+Overall, I believe that this project was a great opportunity to learn about compilers and LLVM.
+Even if the language is quite simple, The difficulties encountered during the implementation were quite challenging and interesting to solve.
+
+
+\end{document}
