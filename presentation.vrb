@@ -1,7 +1,7 @@
 \frametitle{Memory safety}
 
-   eBPF program cannot access memory locations outside of the bounds of its assigned memory areas
-\begin{lstlisting}[frame=single]
+  eBPF program cannot access memory locations outside of the bounds of its assigned memory areas
+  \begin{lstlisting}[frame=single]
 int main(){
   pid_t pid = getpid();
   // privilege-escalation
