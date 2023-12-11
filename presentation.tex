@@ -108,7 +108,7 @@ int main(){
 \begin{frame}{Information flow security}
   \begin{itemize}
     \item eBPF programs cannot leak information about the kernel to the userspace
-    \item Reading uninitialized memory areas is dangerous
+    \item Reading uninitialized memory areas or comparing pointers is dangerous
     \item e.g It might be used to defeat KASLR and obtain addresses of vulnerable kernel functions to
           be used in a buffer overflow attack.
   \end{itemize}
@@ -121,6 +121,7 @@ int main(){
   eBPF program has access to three memory areas:
   \begin{itemize}
     \item Stack: private memory area used as operand stack
+    \item Context: used to pass arguments to the program
     \item Packet: variable-size memory area which stores an incoming/outgoing network packet
     \item Shared memory: for inter-process communication
   \end{itemize}
@@ -180,9 +181,9 @@ int main(){
   $$Safe_{inv}(cmd, \sigma) = inv \notin \{ {e_{p(x)} | x \in ReadRegs(cmd)\}}$$
   \begin{itemize}
     \item $Safe_{inv}$ states that no register mentioned
-          in a statement whose value is read can hold an invalid value:
+          in a statement whose value is read can hold an invalid value
     \item ReadRegs(cmd) denotes the set of registers whose
-          values are read in cmd.
+          values are read in cmd
   \end{itemize}
 \end{frame}
 
