@@ -4,4 +4,3 @@ _build/
 *.fls
 *.fdb_latexmk
 *.synctex.gz
-*.pdf

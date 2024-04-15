@@ -1,39 +1,47 @@
-# MicroC code generation
+# microcc
 
-The goal of this assignment is to translate MicroC code into LLVM IR code.
+ `microcc` is a compiler for the `microc` programming language, a subset of C. The compiler is written in OCaml and uses the LLVM API to generate the LLVM IR code. See file `report.pdf` for a more detailed description of the architecture and implemenation.
 
-## The static semantics of MicroC
+It supports the following features:
+* (multi) variable declaration and initialization;
+* if-then-else statements;
+* while, do-while, for loops;
+* functions (can only return `int`, `void` , `float`, `bool` or `char`);
+* pointers and multi-dimensional arrays;
+* structs;
+* pre/post increment/decrement operators, i.e., `++` and `--`, and  abbreviation for assignment operators, i.e., `+=`, `-=`, `*=`, `/=` and `%=`;
+* `sizeof` and bitwise operators;
+* floating point arithmetic and strings as in C, i.e. null-terminated arrays of characters;
 
-MicroC mainly follows the same rules of language C with some exceptions described below.
 
-### Code generation & runtime support
 
-For the code generation, you should use the LLVM API we presented during the classes.
-Remember that you only generate code for semantically correct programs, thus, you can be sure that
-some situations are catch in the previous compilation stages.
+### Runtime support
 
-MicroC support two library functions to perform I/O operations:
+MicroC support library functions to perform I/O operations:
 * `void print(int)` to print an integer on the standard output;
 * `int getint()` to read an integer from the standard input.
 
 Their implementation is written in C and it is the file `bin/rt-support.c`.
-You can modify these functions as you prefer to match your compilation strategy. 
-During the code generation phase, the module that you generate must include the 
-corresponding prototype for these library functions.
 
-Once you produce a bitcode file, to run your application you have to link it with 
-the object code of the runtime support. 
-To do that, you can use the LLVM command line tools we described during the lectures, e.g.,
-`llvm-link`, `clang`.  
 
-## Result of the linking and code generation phases
-The code generation phase produces a LLVM modules that can be compiled and statically linked with the code the runtime support. 
+## Install with Docker
+The easiest way to install the compiler is to use the provided Dockerfile.
+To build the Docker image, run the following command:
+```sh
+$ docker build -t microcc .
+```
 
-## Requirement to build the code
+Then you can run commands with `docker run`. For instance, to run all the tests you can use the following command:
+
+```sh
+$ docker run microcc ./test_all.sh test-custom
+```
+
+## Requirements to build the code
 The code requires:
 * OCaml >= 4.12.0
 * Menhir >= 20210419
-* ppx_deriving >= 5.2 
+* ppx_deriving >= 5.2
 * llvm >= 12.0.0
 
 You can install the required dependencies via `opam`
@@ -50,21 +58,18 @@ Typing `make` will generate a the compiler executable `bin/microcc.exe`, and the
 $ make
 ```
 
-To clean-up the folder, run:
+You can compile and run a MicroC program with the following command:
 ```
-$ make clean
+dune exec bin/microcc.exe -- $1
+clang a.bc bin/rt-support.c
+./a.out
 ```
 
-To test your parser you can use the files in `test/samples` directory, for example
+You can also use the bash script `test_all.sh` to test the result of your compilation. The usage of such script is:
 ```
-$ dune exec bin/microcc.exe -- samples/test-hello.mc
+$ ./test_all.sh <path/to/folder>
 ```
-or 
-```
-$ dune exec test/codegen_test.exe -- samples/test-hello.mc
-```
-You can also use the bash script `testall.sh` to test the result of your compilation. 
-Note that this script may be adapted to your local machine.
+`samples/`, `test-custom` and `test-custom2` contain a set of test programs that you can use to test your compiler.
 
 ## Directory structure #
 
@@ -101,4 +106,3 @@ The `bin/` directory provide:
     mcompc.mli                   <-- A dummy interface
     rt-support.c                 <-- A simple implementation of the functions of the standard library
 
-**The assignment requires you to complete the implementation of `codegen.ml`. Depending on your compilation strategy in `codegen.ml` you may need to adjust the code in `rt-support.c`.**
